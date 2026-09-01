@@ -829,6 +829,7 @@ export default function App() {
   // Safe numerical helpers for rendering without runtime TypeErrors
   const dollarRate = parseFloat(config.dollar_rate) || 45.00;
   const kpiReceivables = parseFloat(stats.kpis?.total_receivables) || 0;
+  const kpiCollected = parseFloat(stats.kpis?.total_collected) || 0;
   const kpiRevenue = parseFloat(stats.kpis?.total_revenue) || 0;
   const kpiInvestment = parseFloat(stats.kpis?.total_investment) || 0;
   const kpiProfit = parseFloat(stats.kpis?.total_profit) || 0;
@@ -1041,17 +1042,34 @@ export default function App() {
 
             {/* KPI Cards Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+              
+              {/* Cobrado Real en Caja */}
+              <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px', border: '1px solid rgba(245, 158, 11, 0.3)', background: 'rgba(245, 158, 11, 0.05)' }}>
+                <div style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--status-warning)', padding: '12px', borderRadius: '12px' }}>
+                  <Coins size={24} />
+                </div>
+                <div>
+                  <div className="form-label" style={{ marginBottom: '2px', color: 'var(--status-warning)' }}>Cobrado Real en Caja</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>${kpiCollected.toFixed(2)}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Dinero líquido en mano / banco</div>
+                </div>
+              </div>
+
+              {/* Total Facturado (Vendido) */}
               <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{ background: 'rgba(99, 102, 241, 0.1)', color: 'var(--brand-primary)', padding: '12px', borderRadius: '12px' }}>
                   <DollarSign size={24} />
                 </div>
                 <div>
-                  <div className="form-label" style={{ marginBottom: '2px' }}>Vendido / Facturado</div>
+                  <div className="form-label" style={{ marginBottom: '2px' }}>Total Facturado</div>
                   <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>${kpiRevenue.toFixed(2)}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Últimos {statsDays} días</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    ${kpiCollected.toFixed(2)} cobrado + ${kpiReceivables.toFixed(2)} fiao
+                  </div>
                 </div>
               </div>
 
+              {/* Inversión Inventario */}
               <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{ background: 'rgba(6, 182, 212, 0.1)', color: 'var(--brand-secondary)', padding: '12px', borderRadius: '12px' }}>
                   <Package size={24} />
@@ -1063,6 +1081,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Ganancia Neta */}
               <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--status-success)', padding: '12px', borderRadius: '12px' }}>
                   <TrendingUp size={24} />
@@ -1074,8 +1093,9 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Margen sobre Costo */}
               <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{ background: 'rgba(245, 158, 11, 0.1)', color: 'var(--status-warning)', padding: '12px', borderRadius: '12px' }}>
+                <div style={{ background: 'rgba(124, 58, 237, 0.1)', color: 'var(--brand-primary)', padding: '12px', borderRadius: '12px' }}>
                   <CreditCard size={24} />
                 </div>
                 <div>
@@ -1088,21 +1108,31 @@ export default function App() {
 
             {/* Financial SVG Charts */}
             <div className="card" style={{ padding: '30px' }}>
-              <h2 style={{ marginBottom: '24px' }}>Gráfico de Facturación y Ganancias ({statsDays} Días)</h2>
+              <h2 style={{ marginBottom: '24px' }}>Gráfico de Facturación, Cobranza y Ganancias ({statsDays} Días)</h2>
               {stats.chart && stats.chart.length > 0 ? (
                 <div style={{ width: '100%', overflowX: 'auto' }}>
                   <svg viewBox="0 0 900 320" style={{ width: '100%', height: '320px', minWidth: '600px' }}>
                     {(() => {
-                      const maxVal = Math.max(...stats.chart.map(c => Math.max(c.ingresos, c.ganancias, 10)));
+                      const maxVal = Math.max(...stats.chart.map(c => Math.max(c.facturado || c.ingresos || 0, c.cobrado || 0, c.ganancias || 0, 10)));
+                      
                       const pointsRevenue = stats.chart.map((c, i) => {
+                        const val = c.facturado !== undefined ? c.facturado : (c.ingresos || 0);
                         const x = 60 + (i / Math.max(stats.chart.length - 1, 1)) * 800;
-                        const y = 280 - (c.ingresos / maxVal) * 230;
+                        const y = 280 - (val / maxVal) * 230;
+                        return `${x},${y}`;
+                      }).join(' ');
+
+                      const pointsCollected = stats.chart.map((c, i) => {
+                        const val = c.cobrado !== undefined ? c.cobrado : (c.ingresos || 0);
+                        const x = 60 + (i / Math.max(stats.chart.length - 1, 1)) * 800;
+                        const y = 280 - (val / maxVal) * 230;
                         return `${x},${y}`;
                       }).join(' ');
 
                       const pointsProfit = stats.chart.map((c, i) => {
+                        const val = c.ganancias || 0;
                         const x = 60 + (i / Math.max(stats.chart.length - 1, 1)) * 800;
-                        const y = 280 - (c.ganancias / maxVal) * 230;
+                        const y = 280 - (val / maxVal) * 230;
                         return `${x},${y}`;
                       }).join(' ');
 
@@ -1112,7 +1142,13 @@ export default function App() {
                           <line x1="50" y1="165" x2="880" y2="165" stroke="var(--border-color)" strokeWidth="1" strokeDasharray="4" opacity="0.4" />
                           <line x1="50" y1="50" x2="880" y2="50" stroke="var(--border-color)" strokeWidth="1" strokeDasharray="4" opacity="0.4" />
                           
+                          {/* Línea Facturado (Venta total comercial) */}
                           <polyline fill="none" stroke="var(--brand-primary)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={pointsRevenue} />
+                          
+                          {/* Línea Cobrado Real (Dinero en caja) */}
+                          <polyline fill="none" stroke="#f59e0b" strokeWidth="3" strokeDasharray="6 3" strokeLinecap="round" strokeLinejoin="round" points={pointsCollected} />
+                          
+                          {/* Línea Ganancias */}
                           <polyline fill="none" stroke="var(--status-success)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={pointsProfit} />
 
                           {stats.chart.map((c, i) => {
@@ -1134,14 +1170,18 @@ export default function App() {
                     })()}
                   </svg>
                   
-                  <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '24px' }}>
+                  <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginTop: '24px', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                       <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--brand-primary)' }}></span>
-                      Ingresos Totales (Facturación)
+                      Total Facturado (${kpiRevenue.toFixed(2)})
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                      <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#f59e0b' }}></span>
+                      Cobrado Real en Mano (${kpiCollected.toFixed(2)})
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                       <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--status-success)' }}></span>
-                      Ganancia Neta
+                      Ganancia Neta (${kpiProfit.toFixed(2)})
                     </div>
                   </div>
                 </div>

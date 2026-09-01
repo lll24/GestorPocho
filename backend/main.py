@@ -760,6 +760,12 @@ def get_stats(days: int = Query(default=30, description="Días hacia atrás para
     total_cost = sum((s.total_cost for s in sales), Decimal("0.00"))
     total_profit = sum((s.total_profit for s in sales), Decimal("0.00"))
     
+    # Pagos y abonos reales recibidos en este periodo (Flujo de caja efectivo)
+    period_payments = session.exec(select(SalePayment).where(SalePayment.date >= start_date)).all()
+    sales_with_payments = {p.sale_id for p in period_payments}
+    legacy_collected = sum((s.amount_paid for s in sales if s.id not in sales_with_payments), Decimal("0.00"))
+    total_collected_period = sum((p.amount for p in period_payments), Decimal("0.00")) + legacy_collected
+
     # Active investment = sum(stock * (cost_base * (1 + cost_iva / 100) + cost_shipping))
     products = session.exec(select(Product)).all()
     total_inventory_value = sum((p.stock * (p.cost_base * (Decimal("1") + p.cost_iva / Decimal("100")) + p.cost_shipping) for p in products), Decimal("0.00"))
@@ -771,10 +777,9 @@ def get_stats(days: int = Query(default=30, description="Días hacia atrás para
         total_qty = p.stock + sold_qty
         total_historical_value += total_qty * (p.cost_base * (Decimal("1") + p.cost_iva / Decimal("100")) + p.cost_shipping)
 
-    # Debt and collected stats (All-time totals)
+    # Debt stats (Total pendiente en la calle)
     all_sales = session.exec(select(Sale)).all()
     total_receivables = sum((s.amount_pending for s in all_sales if s.amount_pending > Decimal("0.00")), Decimal("0.00"))
-    total_collected = sum((s.amount_paid for s in all_sales), Decimal("0.00"))
     
     config = session.get(BusinessConfig, 1)
     dollar_rate = config.dollar_rate if config else Decimal("45.00")
@@ -783,13 +788,25 @@ def get_stats(days: int = Query(default=30, description="Días hacia atrás para
     chart_dict = {}
     for i in range(days):
         date_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-        chart_dict[date_str] = {"fecha": date_str, "ingresos": Decimal("0.00"), "ganancias": Decimal("0.00")}
+        chart_dict[date_str] = {
+            "fecha": date_str, 
+            "facturado": Decimal("0.00"), 
+            "cobrado": Decimal("0.00"), 
+            "ganancias": Decimal("0.00")
+        }
         
     for sale in sales:
         date_str = sale.date.strftime("%Y-%m-%d")
         if date_str in chart_dict:
-            chart_dict[date_str]["ingresos"] += sale.total_revenue
+            chart_dict[date_str]["facturado"] += sale.total_revenue
             chart_dict[date_str]["ganancias"] += sale.total_profit
+            if not sale.payments:
+                chart_dict[date_str]["cobrado"] += sale.amount_paid
+
+    for payment in period_payments:
+        date_str = payment.date.strftime("%Y-%m-%d")
+        if date_str in chart_dict:
+            chart_dict[date_str]["cobrado"] += payment.amount
             
     chart_data = list(chart_dict.values())
     chart_data.sort(key=lambda x: x["fecha"])
@@ -798,7 +815,7 @@ def get_stats(days: int = Query(default=30, description="Días hacia atrás para
         "kpis": {
             "dollar_rate": float(dollar_rate),
             "total_receivables": float(total_receivables),
-            "total_collected": float(total_collected),
+            "total_collected": float(total_collected_period),
             "total_revenue": float(total_revenue),
             "total_investment": float(total_inventory_value),
             "total_historical_investment": float(total_historical_value),
@@ -808,7 +825,9 @@ def get_stats(days: int = Query(default=30, description="Días hacia atrás para
         "chart": [
             {
                 "fecha": item["fecha"],
-                "ingresos": float(item["ingresos"]),
+                "facturado": float(item["facturado"]),
+                "cobrado": float(item["cobrado"]),
+                "ingresos": float(item["facturado"]),
                 "ganancias": float(item["ganancias"])
             } for item in chart_data
         ]
