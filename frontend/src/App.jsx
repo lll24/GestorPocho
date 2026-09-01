@@ -165,12 +165,16 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/api/config`);
       const data = await res.json();
-      setConfig(data);
-      setConfigForm(data);
+      const sanitized = {
+        ...data,
+        dollar_rate: parseFloat(data.dollar_rate) || 45.00
+      };
+      setConfig(sanitized);
+      setConfigForm(sanitized);
       
-      document.documentElement.style.setProperty('--brand-primary', data.color_primary);
-      document.documentElement.style.setProperty('--brand-secondary', `${data.color_primary}cc`);
-      document.documentElement.style.setProperty('--brand-primary-glow', `${data.color_primary}22`);
+      document.documentElement.style.setProperty('--brand-primary', data.color_primary || '#6366f1');
+      document.documentElement.style.setProperty('--brand-secondary', `${data.color_primary || '#6366f1'}cc`);
+      document.documentElement.style.setProperty('--brand-primary-glow', `${data.color_primary || '#6366f1'}22`);
       
       if (data.theme === 'light') {
         document.body.classList.add('light-theme');
@@ -226,7 +230,19 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/api/stats?days=${statsDays}`);
       const data = await res.json();
-      setStats(data);
+      setStats({
+        kpis: {
+          dollar_rate: parseFloat(data.kpis?.dollar_rate) || 45.00,
+          total_receivables: parseFloat(data.kpis?.total_receivables) || 0,
+          total_collected: parseFloat(data.kpis?.total_collected) || 0,
+          total_revenue: parseFloat(data.kpis?.total_revenue) || 0,
+          total_investment: parseFloat(data.kpis?.total_investment) || 0,
+          total_historical_investment: parseFloat(data.kpis?.total_historical_investment) || 0,
+          total_profit: parseFloat(data.kpis?.total_profit) || 0,
+          profit_margin: parseFloat(data.kpis?.profit_margin) || 0,
+        },
+        chart: data.chart || []
+      });
     } catch (err) {
       console.error('Error fetching stats:', err);
     }
@@ -810,6 +826,14 @@ export default function App() {
     return matchesSearch;
   });
 
+  // Safe numerical helpers for rendering without runtime TypeErrors
+  const dollarRate = parseFloat(config.dollar_rate) || 45.00;
+  const kpiReceivables = parseFloat(stats.kpis?.total_receivables) || 0;
+  const kpiRevenue = parseFloat(stats.kpis?.total_revenue) || 0;
+  const kpiInvestment = parseFloat(stats.kpis?.total_investment) || 0;
+  const kpiProfit = parseFloat(stats.kpis?.total_profit) || 0;
+  const kpiMargin = parseFloat(stats.kpis?.profit_margin) || 0;
+
   return (
     <div className="app-container" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       
@@ -967,7 +991,7 @@ export default function App() {
                     <span className="badge badge-success" style={{ fontSize: '0.65rem' }}>EN VIVO</span>
                   </div>
                   <div style={{ fontSize: '1.8rem', fontWeight: 800, letterSpacing: '-0.5px' }}>
-                    Bs. {config.dollar_rate.toFixed(2)}
+                    Bs. {dollarRate.toFixed(2)}
                     <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)', marginLeft: '6px' }}>/ 1.00 USD</span>
                   </div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
@@ -981,8 +1005,8 @@ export default function App() {
                 display: 'flex', 
                 alignItems: 'center', 
                 gap: '16px', 
-                border: stats.kpis.total_receivables > 0 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-color)', 
-                background: stats.kpis.total_receivables > 0 ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-card)' 
+                border: kpiReceivables > 0 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-color)', 
+                background: kpiReceivables > 0 ? 'rgba(239, 68, 68, 0.05)' : 'var(--bg-card)' 
               }}>
                 <div style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--status-danger)', padding: '16px', borderRadius: '14px' }}>
                   <Clock size={32} />
@@ -990,16 +1014,16 @@ export default function App() {
                 <div style={{ flex: 1 }}>
                   <div className="form-label" style={{ marginBottom: '2px', color: 'var(--status-danger)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span>Cuentas por Cobrar (Fiao)</span>
-                    {stats.kpis.total_receivables > 0 && <span className="badge badge-danger" style={{ fontSize: '0.65rem' }}>PENDIENTE</span>}
+                    {kpiReceivables > 0 && <span className="badge badge-danger" style={{ fontSize: '0.65rem' }}>PENDIENTE</span>}
                   </div>
                   <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--status-danger)' }}>
-                    ${stats.kpis.total_receivables.toFixed(2)}
+                    ${kpiReceivables.toFixed(2)}
                   </div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Equivalente a <strong>Bs. {(stats.kpis.total_receivables * config.dollar_rate).toFixed(2)}</strong> en la calle
+                    Equivalente a <strong>Bs. {(kpiReceivables * dollarRate).toFixed(2)}</strong> en la calle
                   </div>
                 </div>
-                {stats.kpis.total_receivables > 0 && (
+                {kpiReceivables > 0 && (
                   <button 
                     className="btn btn-secondary" 
                     style={{ padding: '8px 12px', fontSize: '0.8rem' }}
@@ -1023,7 +1047,7 @@ export default function App() {
                 </div>
                 <div>
                   <div className="form-label" style={{ marginBottom: '2px' }}>Vendido / Facturado</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>${stats.kpis.total_revenue.toFixed(2)}</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>${kpiRevenue.toFixed(2)}</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Últimos {statsDays} días</div>
                 </div>
               </div>
@@ -1034,7 +1058,7 @@ export default function App() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <div className="form-label" style={{ marginBottom: '2px' }}>Inversión Inventario</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>${stats.kpis.total_investment.toFixed(2)}</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>${kpiInvestment.toFixed(2)}</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Capital activo en stock</div>
                 </div>
               </div>
@@ -1045,7 +1069,7 @@ export default function App() {
                 </div>
                 <div>
                   <div className="form-label" style={{ marginBottom: '2px' }}>Ganancia Neta</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--status-success)' }}>${stats.kpis.total_profit.toFixed(2)}</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--status-success)' }}>${kpiProfit.toFixed(2)}</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Ingresos - Inversión</div>
                 </div>
               </div>
@@ -1056,7 +1080,7 @@ export default function App() {
                 </div>
                 <div>
                   <div className="form-label" style={{ marginBottom: '2px' }}>Margen sobre Costo</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{stats.kpis.profit_margin.toFixed(1)}%</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{kpiMargin.toFixed(1)}%</div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Rentabilidad promedio</div>
                 </div>
               </div>
@@ -1665,7 +1689,7 @@ export default function App() {
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ color: 'var(--brand-secondary)' }}>${cartTotal.toFixed(2)}</div>
                     <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      Bs. {(cartTotal * config.dollar_rate).toFixed(2)}
+                      Bs. {(cartTotal * dollarRate).toFixed(2)}
                     </div>
                   </div>
                 </div>
@@ -1722,7 +1746,7 @@ export default function App() {
                     ${stats.kpis.total_receivables.toFixed(2)}
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Bs. {(stats.kpis.total_receivables * config.dollar_rate).toFixed(2)}
+                    Bs. {(kpiReceivables * dollarRate).toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -1814,10 +1838,10 @@ export default function App() {
                           {c.total_debt > 0 ? (
                             <div>
                               <span className="badge badge-danger" style={{ fontSize: '0.8rem' }}>
-                                Debe: ${c.total_debt.toFixed(2)}
+                                Debe: ${(parseFloat(c.total_debt) || 0).toFixed(2)}
                               </span>
                               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                Bs. {(c.total_debt * config.dollar_rate).toFixed(2)}
+                                Bs. {((parseFloat(c.total_debt) || 0) * dollarRate).toFixed(2)}
                               </div>
                             </div>
                           ) : (
@@ -1961,9 +1985,9 @@ export default function App() {
                           </div>
                         </td>
                         <td style={{ fontWeight: 'bold' }}>
-                          <div>${parseFloat(sale.total_revenue).toFixed(2)}</div>
+                          <div>${(parseFloat(sale.total_revenue) || 0).toFixed(2)}</div>
                           <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)', marginTop: '4px' }}>
-                            Bs. {(sale.total_revenue * sale.dollar_rate).toFixed(2)}
+                            Bs. {((parseFloat(sale.total_revenue) || 0) * (parseFloat(sale.dollar_rate) || dollarRate)).toFixed(2)}
                           </div>
                         </td>
                         <td>
@@ -2574,10 +2598,10 @@ export default function App() {
                   Deuda Pendiente (Fiao)
                 </div>
                 <div style={{ fontSize: '1.2rem', fontWeight: 800, color: selectedCustomerDetail.metrics.total_debt > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
-                  ${selectedCustomerDetail.metrics.total_debt.toFixed(2)}
+                  ${(parseFloat(selectedCustomerDetail.metrics.total_debt) || 0).toFixed(2)}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                  Bs. {(selectedCustomerDetail.metrics.total_debt * config.dollar_rate).toFixed(2)}
+                  Bs. {((parseFloat(selectedCustomerDetail.metrics.total_debt) || 0) * dollarRate).toFixed(2)}
                 </div>
               </div>
 
@@ -2696,9 +2720,9 @@ export default function App() {
             <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Saldo pendiente actual:</div>
               <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--status-danger)' }}>
-                ${activeSaleForPayment.amount_pending.toFixed(2)} 
+                ${(parseFloat(activeSaleForPayment.amount_pending) || 0).toFixed(2)} 
                 <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginLeft: '6px' }}>
-                  (Bs. {(activeSaleForPayment.amount_pending * config.dollar_rate).toFixed(2)})
+                  (Bs. {((parseFloat(activeSaleForPayment.amount_pending) || 0) * dollarRate).toFixed(2)})
                 </span>
               </div>
             </div>

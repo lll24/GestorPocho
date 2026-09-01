@@ -127,7 +127,7 @@ def optimize_base64_image(base64_str: Optional[str], max_size=(1000, 1000), qual
 # --- API Endpoints ---
 
 # 1. Configuración de Marca Blanca
-@app.get("/api/config", response_model=BusinessConfig)
+@app.get("/api/config")
 def get_config(session: Session = Depends(get_session)):
     config = session.get(BusinessConfig, 1)
     if not config:
@@ -135,9 +135,16 @@ def get_config(session: Session = Depends(get_session)):
         session.add(config)
         session.commit()
         session.refresh(config)
-    return config
+    return {
+        "id": config.id,
+        "name": config.name,
+        "logo_base64": config.logo_base64,
+        "color_primary": config.color_primary,
+        "theme": config.theme,
+        "dollar_rate": float(config.dollar_rate)
+    }
 
-@app.put("/api/config", response_model=BusinessConfig)
+@app.put("/api/config")
 def update_config(config_update: BusinessConfigUpdate, session: Session = Depends(get_session)):
     config = session.get(BusinessConfig, 1)
     if not config:
@@ -150,7 +157,14 @@ def update_config(config_update: BusinessConfigUpdate, session: Session = Depend
     session.add(config)
     session.commit()
     session.refresh(config)
-    return config
+    return {
+        "id": config.id,
+        "name": config.name,
+        "logo_base64": config.logo_base64,
+        "color_primary": config.color_primary,
+        "theme": config.theme,
+        "dollar_rate": float(config.dollar_rate)
+    }
 
 # 2. Categorías y Subcategorías Dinámicas
 @app.get("/api/categories")
