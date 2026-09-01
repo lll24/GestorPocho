@@ -15,7 +15,7 @@ from fpdf import FPDF
 from PIL import Image
 
 from database import engine, create_db_and_tables, get_session, DATABASE_FILE
-from models import BusinessConfig, Product, Sale, SaleItem, Category, Subcategory, Customer, SalePayment
+from models import BusinessConfig, Product, Sale, SaleItem, Category, Subcategory, Customer, SalePayment, CashMovement
 
 # FastAPI initialization
 app = FastAPI(title="Gestor Pocho Backend")
@@ -78,6 +78,14 @@ class SalePaymentCreate(BaseModel):
     amount: Decimal
     payment_method: str = "divisas"
     payment_reference: Optional[str] = None
+    notes: Optional[str] = None
+
+class CashWithdrawalCreate(BaseModel):
+    amount: Decimal
+    notes: Optional[str] = None
+
+class CashDepositCreate(BaseModel):
+    amount: Decimal
     notes: Optional[str] = None
 
 class SaleCreate(BaseModel):
@@ -364,6 +372,23 @@ def create_product(product_data: ProductCreateUpdate, session: Session = Depends
     session.add(product)
     session.commit()
     session.refresh(product)
+
+    # Registrar salida de caja por inversión de inventario inicial
+    if product.stock > 0:
+        unit_cost = product.cost_base * (Decimal("1") + product.cost_iva / Decimal("100")) + product.cost_shipping
+        total_inv = product.stock * unit_cost
+        if total_inv > Decimal("0.00"):
+            cash_mv = CashMovement(
+                type="compra_inventario",
+                amount=total_inv,
+                direction="out",
+                description=f"Compra inicial: {product.name} ({product.stock} unid.)",
+                reference_id=product.id,
+                date=datetime.now()
+            )
+            session.add(cash_mv)
+            session.commit()
+
     return product
 
 @app.put("/api/products/{product_id}", response_model=Product)
@@ -386,12 +411,31 @@ def update_product(product_id: int, product_data: ProductCreateUpdate, session: 
         if sub:
             data["subcategory_name"] = sub.name
 
+    old_stock = product.stock
     for key, value in data.items():
         setattr(product, key, value)
         
     session.add(product)
     session.commit()
     session.refresh(product)
+
+    # Si se incrementó el stock, registrar salida de caja por reposición
+    if product.stock > old_stock:
+        added_units = product.stock - old_stock
+        unit_cost = product.cost_base * (Decimal("1") + product.cost_iva / Decimal("100")) + product.cost_shipping
+        total_added_inv = added_units * unit_cost
+        if total_added_inv > Decimal("0.00"):
+            cash_mv = CashMovement(
+                type="compra_inventario",
+                amount=total_added_inv,
+                direction="out",
+                description=f"Reposición de stock: {product.name} (+{added_units} unid.)",
+                reference_id=product.id,
+                date=datetime.now()
+            )
+            session.add(cash_mv)
+            session.commit()
+
     return product
 
 @app.delete("/api/products/{product_id}")
@@ -535,7 +579,7 @@ def create_sale(sale_data: SaleCreate, session: Session = Depends(get_session)):
             item.sale_id = sale.id
             session.add(item)
             
-        # Si hubo abono inicial o pago de contado, registrar en SalePayment
+        # Si hubo abono inicial o pago de contado, registrar en SalePayment y en CashMovement
         if amount_paid > Decimal("0.00"):
             initial_payment = SalePayment(
                 sale_id=sale.id,
@@ -546,6 +590,16 @@ def create_sale(sale_data: SaleCreate, session: Session = Depends(get_session)):
                 date=datetime.now()
             )
             session.add(initial_payment)
+            
+            cash_mv = CashMovement(
+                type="ingreso_venta",
+                amount=amount_paid,
+                direction="in",
+                description=f"Cobro venta #{sale.id} ({sale.payment_method})",
+                reference_id=sale.id,
+                date=datetime.now()
+            )
+            session.add(cash_mv)
             
         session.commit()
         session.refresh(sale)
@@ -579,6 +633,17 @@ def add_sale_payment(sale_id: int, payment_data: SalePaymentCreate, session: Ses
         date=datetime.now()
     )
     session.add(payment)
+
+    cash_mv = CashMovement(
+        type="abono_fiao",
+        amount=pay_amount,
+        direction="in",
+        description=f"Abono a venta #{sale.id} ({payment.payment_method})",
+        reference_id=sale.id,
+        notes=payment_data.notes,
+        date=datetime.now()
+    )
+    session.add(cash_mv)
     
     sale.amount_paid += pay_amount
     sale.amount_pending = max(sale.total_revenue - sale.amount_paid, Decimal("0.00"))
@@ -808,12 +873,33 @@ def get_stats(days: int = Query(default=30, description="Días hacia atrás para
         if date_str in chart_dict:
             chart_dict[date_str]["cobrado"] += payment.amount
             
+    # Saldo real en caja actual y evolución histórica para la gráfica
+    from datetime import time
+    cash_movements = session.exec(select(CashMovement).order_by(CashMovement.date.asc())).all()
+    total_cash_in = sum((m.amount for m in cash_movements if m.direction == "in"), Decimal("0.00"))
+    total_cash_out = sum((m.amount for m in cash_movements if m.direction == "out"), Decimal("0.00"))
+    cash_balance = total_cash_in - total_cash_out
+
+    # Calcular el Saldo Real en Caja acumulado al final de cada día
+    for item in chart_dict.values():
+        dt_date = datetime.strptime(item["fecha"], "%Y-%m-%d").date()
+        end_of_day = datetime.combine(dt_date, time.max)
+        day_balance = Decimal("0.00")
+        for m in cash_movements:
+            if m.date <= end_of_day:
+                if m.direction == "in":
+                    day_balance += m.amount
+                else:
+                    day_balance -= m.amount
+        item["caja"] = day_balance
+
     chart_data = list(chart_dict.values())
     chart_data.sort(key=lambda x: x["fecha"])
-    
+
     return {
         "kpis": {
             "dollar_rate": float(dollar_rate),
+            "cash_balance": float(cash_balance),
             "total_receivables": float(total_receivables),
             "total_collected": float(total_collected_period),
             "total_revenue": float(total_revenue),
@@ -826,14 +912,108 @@ def get_stats(days: int = Query(default=30, description="Días hacia atrás para
             {
                 "fecha": item["fecha"],
                 "facturado": float(item["facturado"]),
-                "cobrado": float(item["cobrado"]),
-                "ingresos": float(item["facturado"]),
+                "caja": float(item.get("caja", Decimal("0.00"))),
                 "ganancias": float(item["ganancias"])
             } for item in chart_data
         ]
     }
 
-# 7. Backup y Restaurar Base de Datos
+# 7. Gestión de Caja y Retiros del Dueño
+@app.get("/api/cash/balance")
+def get_cash_balance(session: Session = Depends(get_session)):
+    movements = session.exec(select(CashMovement)).all()
+    total_in = sum((m.amount for m in movements if m.direction == "in"), Decimal("0.00"))
+    total_out = sum((m.amount for m in movements if m.direction == "out"), Decimal("0.00"))
+    balance = total_in - total_out
+    return {
+        "balance": float(balance),
+        "total_in": float(total_in),
+        "total_out": float(total_out),
+        "can_withdraw": bool(balance > Decimal("0.00"))
+    }
+
+@app.get("/api/cash/movements")
+def get_cash_movements(limit: int = 50, session: Session = Depends(get_session)):
+    movements = session.exec(select(CashMovement).order_by(CashMovement.date.desc()).limit(limit)).all()
+    return [
+        {
+            "id": m.id,
+            "type": m.type,
+            "amount": float(m.amount),
+            "direction": m.direction,
+            "description": m.description,
+            "date": m.date,
+            "reference_id": m.reference_id,
+            "notes": m.notes
+        } for m in movements
+    ]
+
+@app.post("/api/cash/withdraw")
+def withdraw_cash(data: CashWithdrawalCreate, session: Session = Depends(get_session)):
+    if data.amount <= Decimal("0.00"):
+        raise HTTPException(status_code=400, detail="El monto a retirar debe ser mayor a 0.")
+        
+    movements = session.exec(select(CashMovement)).all()
+    total_in = sum((m.amount for m in movements if m.direction == "in"), Decimal("0.00"))
+    total_out = sum((m.amount for m in movements if m.direction == "out"), Decimal("0.00"))
+    current_balance = total_in - total_out
+    
+    if current_balance <= Decimal("0.00"):
+        raise HTTPException(status_code=400, detail=f"No hay fondos disponibles en caja para retirar (Saldo actual: ${float(current_balance):.2f}). No se puede dejar la caja en negativo.")
+        
+    if data.amount > current_balance:
+        raise HTTPException(status_code=400, detail=f"El monto a retirar (${float(data.amount):.2f}) supera el saldo disponible en caja (${float(current_balance):.2f}). No se puede dejar la caja en negativo.")
+        
+    movement = CashMovement(
+        type="retiro_dueno",
+        amount=data.amount,
+        direction="out",
+        description="Retiro de fondos por el dueño",
+        notes=data.notes,
+        date=datetime.now()
+    )
+    session.add(movement)
+    session.commit()
+    session.refresh(movement)
+    
+    new_balance = current_balance - data.amount
+    return {
+        "status": "success",
+        "message": "Retiro registrado exitosamente",
+        "withdrawn": float(data.amount),
+        "new_balance": float(new_balance)
+    }
+
+@app.post("/api/cash/deposit")
+def deposit_cash(data: CashDepositCreate, session: Session = Depends(get_session)):
+    if data.amount <= Decimal("0.00"):
+        raise HTTPException(status_code=400, detail="El monto a ingresar debe ser mayor a 0.")
+        
+    movement = CashMovement(
+        type="ingreso_capital",
+        amount=data.amount,
+        direction="in",
+        description="Aporte de capital / Fondo de caja",
+        notes=data.notes,
+        date=datetime.now()
+    )
+    session.add(movement)
+    session.commit()
+    session.refresh(movement)
+    
+    movements = session.exec(select(CashMovement)).all()
+    total_in = sum((m.amount for m in movements if m.direction == "in"), Decimal("0.00"))
+    total_out = sum((m.amount for m in movements if m.direction == "out"), Decimal("0.00"))
+    new_balance = total_in - total_out
+    
+    return {
+        "status": "success",
+        "message": "Aporte de capital registrado exitosamente",
+        "deposited": float(data.amount),
+        "new_balance": float(new_balance)
+    }
+
+# 8. Backup y Restaurar Base de Datos
 @app.get("/api/backup")
 def get_backup():
     db_path = DATABASE_FILE
@@ -860,16 +1040,25 @@ def restore_backup(file: UploadFile = File(...), session: Session = Depends(get_
         
     return {"message": "Database restored successfully"}
 
-# 8. Reporte Global de Ventas en PDF
+# 8. Reporte Global de Ventas y Caja en PDF
 @app.get("/api/sales/report")
 def get_global_report(days: int = Query(default=30), session: Session = Depends(get_session)):
     start_date = datetime.now() - timedelta(days=days)
-    sales = session.exec(select(Sale).where(Sale.date >= start_date)).all()
+    sales = session.exec(select(Sale).where(Sale.date >= start_date).order_by(Sale.date.desc())).all()
+    cash_movements = session.exec(
+        select(CashMovement).where(CashMovement.date >= start_date).order_by(CashMovement.date.desc())
+    ).all()
+    all_cash = session.exec(select(CashMovement)).all()
+    total_cash_in = sum((m.amount for m in all_cash if m.direction == "in"), Decimal("0.00"))
+    total_cash_out = sum((m.amount for m in all_cash if m.direction == "out"), Decimal("0.00"))
+    cash_balance = total_cash_in - total_cash_out
+
     config = session.get(BusinessConfig, 1)
     if not config:
         config = BusinessConfig()
         
     pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Helvetica", size=12)
     
@@ -895,7 +1084,7 @@ def get_global_report(days: int = Query(default=30), session: Session = Depends(
     
     pdf.set_xy(100, 10)
     pdf.set_font("Helvetica", "B", 14)
-    pdf.cell(100, 10, "REPORTE GLOBAL DE VENTAS", ln=True, align="R")
+    pdf.cell(100, 10, "REPORTE FINANCIERO Y CAJA", ln=True, align="R")
     
     pdf.set_xy(100, 18)
     pdf.set_font("Helvetica", size=10)
@@ -912,41 +1101,91 @@ def get_global_report(days: int = Query(default=30), session: Session = Depends(
     
     pdf.set_fill_color(245, 245, 250)
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(190, 8, "RESUMEN DE METRICAS", border=1, ln=True, fill=True, align="C")
+    pdf.cell(190, 8, "RESUMEN DE METRICAS DEL NEGOCIO", border=1, ln=True, fill=True, align="C")
     
     pdf.set_font("Helvetica", size=10)
     pdf.cell(95, 8, f" Cantidad de Ventas: {len(sales)}", border=1)
-    pdf.cell(95, 8, f" Margen de Ganancia: {float((total_prof_usd/total_rev_usd*100)) if total_rev_usd > 0 else 0.0:.1f}%", border=1, ln=True)
+    pdf.cell(95, 8, f" Margen s/ Costo: {float((total_prof_usd/(total_rev_usd - total_prof_usd)*100)) if (total_rev_usd - total_prof_usd) > 0 else 0.0:.1f}%", border=1, ln=True)
     
-    pdf.cell(95, 8, f" Ingresos USD: ${total_rev_usd:.2f}", border=1)
-    pdf.cell(95, 8, f" Ingresos VES: Bs. {total_rev_bs:.2f}", border=1, ln=True)
+    pdf.cell(95, 8, f" Total Facturado USD: ${total_rev_usd:.2f}", border=1)
+    pdf.cell(95, 8, f" Total Facturado VES: Bs. {total_rev_bs:.2f}", border=1, ln=True)
     
-    pdf.cell(95, 8, f" Ganancias USD: ${total_prof_usd:.2f}", border=1)
-    pdf.cell(95, 8, f" Ganancias VES: Bs. {total_prof_bs:.2f}", border=1, ln=True)
+    pdf.cell(95, 8, f" Ganancias Limpias USD: ${total_prof_usd:.2f}", border=1)
+    pdf.cell(95, 8, f" Ganancias Limpias VES: Bs. {total_prof_bs:.2f}", border=1, ln=True)
+
+    pdf.cell(95, 8, f" Saldo Disponible en Caja: ${cash_balance:.2f} USD", border=1)
+    pdf.cell(95, 8, f" Equivalente Caja en Bs: Bs. {cash_balance * config.dollar_rate:.2f}", border=1, ln=True)
     
-    pdf.ln(10)
+    pdf.ln(8)
     
+    # 1. TABLA DE VENTAS
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_fill_color(220, 220, 230)
-    pdf.cell(18, 8, "Venta", border=1, fill=True, align="C")
-    pdf.cell(24, 8, "Fecha", border=1, fill=True)
-    pdf.cell(40, 8, "Cliente", border=1, fill=True)
-    pdf.cell(26, 8, "Estado", border=1, fill=True, align="C")
-    pdf.cell(26, 8, "Metodo", border=1, fill=True, align="C")
-    pdf.cell(28, 8, "Total USD", border=1, fill=True, align="R")
-    pdf.cell(28, 8, "Pendiente", border=1, fill=True, align="R")
+    pdf.cell(190, 7, "DETALLE DE VENTAS DEL PERIODO", border=1, ln=True, fill=True, align="C")
+    pdf.cell(18, 7, "Venta", border=1, fill=True, align="C")
+    pdf.cell(24, 7, "Fecha", border=1, fill=True)
+    pdf.cell(40, 7, "Cliente", border=1, fill=True)
+    pdf.cell(26, 7, "Estado", border=1, fill=True, align="C")
+    pdf.cell(26, 7, "Metodo", border=1, fill=True, align="C")
+    pdf.cell(28, 7, "Total USD", border=1, fill=True, align="R")
+    pdf.cell(28, 7, "Pendiente", border=1, fill=True, align="R")
     pdf.ln()
     
     pdf.set_font("Helvetica", size=9)
     for sale in sales:
-        pdf.cell(18, 8, f"#{sale.id}", border=1, align="C")
-        pdf.cell(24, 8, sale.date.strftime("%d/%m/%Y"), border=1)
+        pdf.cell(18, 7, f"#{sale.id}", border=1, align="C")
+        pdf.cell(24, 7, sale.date.strftime("%d/%m/%Y"), border=1)
         client_str = sale.client_name or "Consumidor Final"
-        pdf.cell(40, 8, (client_str[:18] + "..") if len(client_str) > 18 else client_str, border=1)
-        pdf.cell(26, 8, sale.payment_status.upper(), border=1, align="C")
-        pdf.cell(26, 8, sale.payment_method.upper(), border=1, align="C")
-        pdf.cell(28, 8, f"${sale.total_revenue:.2f}", border=1, align="R")
-        pdf.cell(28, 8, f"${sale.amount_pending:.2f}", border=1, align="R")
+        pdf.cell(40, 7, (client_str[:18] + "..") if len(client_str) > 18 else client_str, border=1)
+        pdf.cell(26, 7, sale.payment_status.upper(), border=1, align="C")
+        pdf.cell(26, 7, sale.payment_method.upper(), border=1, align="C")
+        pdf.cell(28, 7, f"${sale.total_revenue:.2f}", border=1, align="R")
+        pdf.cell(28, 7, f"${sale.amount_pending:.2f}", border=1, align="R")
+        pdf.ln()
+
+    # 2. TABLA DE MOVIMIENTOS DE CAJA
+    pdf.ln(8)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_fill_color(220, 220, 230)
+    pdf.cell(190, 7, "HISTORIAL Y AUDITORIA DE MOVIMIENTOS DE CAJA", border=1, ln=True, fill=True, align="C")
+
+    period_in = sum((m.amount for m in cash_movements if m.direction == "in"), Decimal("0.00"))
+    period_out = sum((m.amount for m in cash_movements if m.direction == "out"), Decimal("0.00"))
+    pdf.set_font("Helvetica", size=9)
+    pdf.cell(95, 7, f" Entradas Caja (Cobros/Aportes): +${period_in:.2f}", border=1)
+    pdf.cell(95, 7, f" Salidas Caja (Compras/Retiros): -${period_out:.2f}", border=1, ln=True)
+
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_fill_color(220, 220, 230)
+    pdf.cell(32, 7, "Fecha", border=1, fill=True)
+    pdf.cell(38, 7, "Tipo", border=1, fill=True)
+    pdf.cell(82, 7, "Concepto / Descripcion", border=1, fill=True)
+    pdf.cell(38, 7, "Monto USD", border=1, fill=True, align="R")
+    pdf.ln()
+
+    type_names = {
+        "compra_inventario": "Compra Stock",
+        "ingreso_venta": "Cobro Venta",
+        "abono_fiao": "Abono a Fiao",
+        "retiro_dueno": "Retiro Dueno",
+        "ingreso_capital": "Aporte Capital"
+    }
+
+    pdf.set_font("Helvetica", size=8)
+    for m in cash_movements:
+        sign = "+" if m.direction == "in" else "-"
+        t_name = type_names.get(m.type, m.type)
+        desc = m.description or ""
+        if m.notes:
+            desc += f" ({m.notes})"
+        if len(desc) > 48:
+            desc = desc[:45] + ".."
+        
+        pdf.cell(32, 6, m.date.strftime("%d/%m/%Y %H:%M"), border=1)
+        pdf.cell(38, 6, t_name, border=1)
+        pdf.cell(82, 6, desc, border=1)
+        pdf.cell(38, 6, f"{sign}${m.amount:.2f}", border=1, align="R")
         pdf.ln()
         
     try:
@@ -959,7 +1198,7 @@ def get_global_report(days: int = Query(default=30), session: Session = Depends(
     return Response(
         content=pdf_bytes, 
         media_type="application/pdf", 
-        headers={"Content-Disposition": f"inline; filename=reporte_ventas_{days}_dias.pdf"}
+        headers={"Content-Disposition": f"inline; filename=reporte_financiero_{days}_dias.pdf"}
     )
 
 # --- Serve Frontend Production Build ---

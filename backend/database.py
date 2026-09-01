@@ -1,5 +1,7 @@
 from sqlmodel import SQLModel, create_engine, Session, select
 from sqlalchemy import text
+from decimal import Decimal
+from datetime import datetime
 import os
 import sys
 
@@ -78,6 +80,37 @@ def create_db_and_tables():
                 for sub_name in subs:
                     sub = Subcategory(name=sub_name, category_id=cat.id)
                     session.add(sub)
+            session.commit()
+
+        # Backfill initial cash movements if CashMovement table is empty and products/sales exist
+        from models import CashMovement, Product, Sale
+        existing_movements = session.exec(select(CashMovement)).first()
+        if not existing_movements:
+            existing_products = session.exec(select(Product)).all()
+            for prod in existing_products:
+                if prod.stock > 0:
+                    unit_cost = prod.cost_base * (Decimal("1") + prod.cost_iva / Decimal("100")) + prod.cost_shipping
+                    total_purchase = prod.stock * unit_cost
+                    if total_purchase > Decimal("0.00"):
+                        session.add(CashMovement(
+                            type="compra_inventario",
+                            amount=total_purchase,
+                            direction="out",
+                            description=f"Inversión inicial: {prod.name} ({prod.stock} unid.)",
+                            reference_id=prod.id,
+                            date=datetime.now()
+                        ))
+            existing_sales = session.exec(select(Sale)).all()
+            for sale in existing_sales:
+                if sale.amount_paid > Decimal("0.00"):
+                    session.add(CashMovement(
+                        type="ingreso_venta",
+                        amount=sale.amount_paid,
+                        direction="in",
+                        description=f"Cobro venta #{sale.id} ({sale.payment_method})",
+                        reference_id=sale.id,
+                        date=sale.date
+                    ))
             session.commit()
 
 def get_session():

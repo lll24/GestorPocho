@@ -28,7 +28,10 @@ import {
   Tag,
   Layers,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Wallet,
+  ArrowDownRight,
+  ArrowUpRight
 } from 'lucide-react';
 
 const API_URL = window.location.port === '5173' 
@@ -96,6 +99,8 @@ export default function App() {
   const [cart, setCart] = useState([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [clientName, setClientName] = useState('');
+  const [posCustomerSearch, setPosCustomerSearch] = useState('');
+  const [showPosCustomerDropdown, setShowPosCustomerDropdown] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('divisas');
   const [paymentStatus, setPaymentStatus] = useState('pagado'); // pagado, parcial, fiao
   const [initialPayment, setInitialPayment] = useState('');
@@ -150,6 +155,19 @@ export default function App() {
     notes: ''
   });
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+
+  // Cash & Withdrawals State
+  const [cashBalance, setCashBalance] = useState({ balance: 0, total_in: 0, total_out: 0, can_withdraw: false });
+  const [cashMovements, setCashMovements] = useState([]);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [withdrawForm, setWithdrawForm] = useState({ amount: '', notes: '' });
+  const [depositForm, setDepositForm] = useState({ amount: '', notes: '' });
+  const [isSubmittingCash, setIsSubmittingCash] = useState(false);
+
+  // History Filter State
+  const [historyFilter, setHistoryFilter] = useState('all'); // 'all', 'sales', 'inventory', 'cash', 'abonos'
+  const [historySearch, setHistorySearch] = useState('');
 
   // Config Form State
   const [configForm, setConfigForm] = useState({
@@ -263,12 +281,107 @@ export default function App() {
     }
   };
 
+  const fetchCashData = async () => {
+    try {
+      const [resBal, resMv] = await Promise.all([
+        fetch(`${API_URL}/api/cash/balance`),
+        fetch(`${API_URL}/api/cash/movements`)
+      ]);
+      const dataBal = await resBal.json();
+      const dataMv = await resMv.json();
+      setCashBalance({
+        balance: parseFloat(dataBal.balance) || 0,
+        total_in: parseFloat(dataBal.total_in) || 0,
+        total_out: parseFloat(dataBal.total_out) || 0,
+        can_withdraw: Boolean(dataBal.can_withdraw)
+      });
+      setCashMovements(Array.isArray(dataMv) ? dataMv : []);
+    } catch (err) {
+      console.error('Error fetching cash data:', err);
+    }
+  };
+
+  const handleWithdrawSubmit = async (e) => {
+    e.preventDefault();
+    const amountNum = parseFloat(withdrawForm.amount);
+    if (!amountNum || amountNum <= 0) {
+      alert('Por favor ingresa un monto válido a retirar.');
+      return;
+    }
+    if (amountNum > cashBalance.balance) {
+      alert(`No puedes retirar más de lo que hay en caja ($${cashBalance.balance.toFixed(2)}).`);
+      return;
+    }
+
+    setIsSubmittingCash(true);
+    try {
+      const res = await fetch(`${API_URL}/api/cash/withdraw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: amountNum,
+          notes: withdrawForm.notes || null
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Error al procesar el retiro');
+      }
+
+      await Promise.all([fetchCashData(), fetchStats()]);
+      setShowWithdrawModal(false);
+      setWithdrawForm({ amount: '', notes: '' });
+      alert('¡Retiro registrado exitosamente!');
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setIsSubmittingCash(false);
+    }
+  };
+
+  const handleDepositSubmit = async (e) => {
+    e.preventDefault();
+    const amountNum = parseFloat(depositForm.amount);
+    if (!amountNum || amountNum <= 0) {
+      alert('Por favor ingresa un monto válido a ingresar.');
+      return;
+    }
+
+    setIsSubmittingCash(true);
+    try {
+      const res = await fetch(`${API_URL}/api/cash/deposit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: amountNum,
+          notes: depositForm.notes || null
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Error al procesar el aporte');
+      }
+
+      await Promise.all([fetchCashData(), fetchStats()]);
+      setShowDepositModal(false);
+      setDepositForm({ amount: '', notes: '' });
+      alert('¡Aporte de capital registrado exitosamente!');
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setIsSubmittingCash(false);
+    }
+  };
+
   useEffect(() => {
     fetchConfig();
     fetchProducts();
     fetchSales();
     fetchCategories();
     fetchCustomers();
+    fetchCashData();
   }, []);
 
   useEffect(() => {
@@ -501,6 +614,7 @@ export default function App() {
         setShowProductModal(false);
         fetchProducts();
         fetchStats();
+        fetchCashData();
       } else {
         alert('Error al guardar el producto.');
       }
@@ -683,6 +797,7 @@ export default function App() {
         fetchSales();
         fetchCustomers();
         fetchStats();
+        fetchCashData();
         if (selectedCustomerDetail) {
           fetchCustomerDetail(selectedCustomerDetail.customer.id);
         }
@@ -771,6 +886,8 @@ export default function App() {
         setCart([]);
         setClientName('');
         setSelectedCustomerId('');
+        setPosCustomerSearch('');
+        setShowPosCustomerDropdown(false);
         setPaymentStatus('pagado');
         setInitialPayment('');
         setPaymentReference('');
@@ -781,6 +898,7 @@ export default function App() {
         fetchSales();
         fetchCustomers();
         fetchStats();
+        fetchCashData();
         
         window.open(`${API_URL}/api/sales/${finishedSale.id}/invoice`, '_blank');
       } else {
@@ -834,6 +952,7 @@ export default function App() {
   const kpiInvestment = parseFloat(stats.kpis?.total_investment) || 0;
   const kpiProfit = parseFloat(stats.kpis?.total_profit) || 0;
   const kpiMargin = parseFloat(stats.kpis?.profit_margin) || 0;
+  const currentCash = parseFloat(cashBalance.balance) || 0;
 
   return (
     <div className="app-container" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -916,7 +1035,7 @@ export default function App() {
                   onClick={() => { setCurrentView('history'); setSidebarOpen(false); }}
                 >
                   <History size={18} />
-                  Historial de Ventas
+                  Historial
                 </button>
               </li>
               <li>
@@ -956,29 +1075,41 @@ export default function App() {
                 <p style={{ color: 'var(--text-secondary)' }}>Métricas, tasas e inversión en tiempo real para tu negocio</p>
               </div>
               
-              <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-card)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                {[7, 30, 90].map(days => (
-                  <button 
-                    key={days} 
-                    onClick={() => setStatsDays(days)}
-                    style={{
-                      border: 'none',
-                      background: statsDays === days ? 'var(--brand-primary)' : 'transparent',
-                      color: statsDays === days ? 'white' : 'var(--text-secondary)',
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontWeight: 600,
-                      fontSize: '0.85rem'
-                    }}
-                  >
-                    {days} Días
-                  </button>
-                ))}
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-card)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  {[7, 30, 90].map(days => (
+                    <button 
+                      key={days} 
+                      onClick={() => setStatsDays(days)}
+                      style={{
+                        border: 'none',
+                        background: statsDays === days ? 'var(--brand-primary)' : 'transparent',
+                        color: statsDays === days ? 'white' : 'var(--text-secondary)',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      {days} Días
+                    </button>
+                  ))}
+                </div>
+
+                <button 
+                  className="btn btn-secondary"
+                  style={{ padding: '8px 16px', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                  onClick={() => window.open(`${API_URL}/api/sales/report?days=${statsDays}`, '_blank')}
+                  title="Descargar reporte completo en PDF con ventas y movimientos de caja"
+                >
+                  <FileText size={16} />
+                  Descargar Reporte ({statsDays} Días)
+                </button>
               </div>
             </div>
 
-            {/* HIGHLIGHT BANNER: TASA DEL DÓLAR Y DEUDAS EN LA CALLE */}
+            {/* HIGHLIGHT BANNER: TASA DEL DÓLAR, SALDO EN CAJA Y DEUDAS EN LA CALLE */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
               
               {/* Tasa del Dólar Oficial del Sistema */}
@@ -998,6 +1129,82 @@ export default function App() {
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                     Utilizada automáticamente en facturas y POS
                   </div>
+                </div>
+              </div>
+
+              {/* Saldo Actual en Caja (Efectivo Real) */}
+              <div className="card" style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                justifyContent: 'space-between',
+                border: currentCash < 0 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(16, 185, 129, 0.3)', 
+                background: currentCash < 0 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)' 
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ 
+                    background: currentCash < 0 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)', 
+                    color: currentCash < 0 ? 'var(--status-danger)' : 'var(--status-success)', 
+                    padding: '16px', 
+                    borderRadius: '14px' 
+                  }}>
+                    <Wallet size={32} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className="form-label" style={{ marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ color: currentCash < 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>Saldo Real en Caja</span>
+                      {currentCash < 0 ? (
+                        <span className="badge badge-danger" style={{ fontSize: '0.65rem' }}>INVERSIÓN POR RECUPERAR</span>
+                      ) : (
+                        <span className="badge badge-success" style={{ fontSize: '0.65rem' }}>FONDOS DISPONIBLES</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '1.8rem', fontWeight: 800, color: currentCash < 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
+                      ${currentCash.toFixed(2)}
+                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginLeft: '6px' }}>USD</span>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Equivalente a <strong>Bs. {(currentCash * dollarRate).toFixed(2)}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '10px', marginTop: '10px' }}>
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                    onClick={() => {
+                      if (currentCash <= 0) {
+                        alert(`No hay fondos disponibles en caja para retirar (Saldo actual: $${currentCash.toFixed(2)}). El retiro no puede dejar la caja en negativo.`);
+                        return;
+                      }
+                      setShowDepositModal(false);
+                      setWithdrawForm({ amount: '', notes: '' });
+                      setShowWithdrawModal(true);
+                    }}
+                    title={currentCash <= 0 ? "No puedes retirar con saldo negativo o cero" : "Retirar fondos"}
+                  >
+                    <ArrowDownRight size={14} /> Retirar Fondos
+                  </button>
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ flex: 1, padding: '6px 10px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                    onClick={() => {
+                      setShowWithdrawModal(false);
+                      setDepositForm({ amount: '', notes: '' });
+                      setShowDepositModal(true);
+                    }}
+                    title="Aportar capital a caja"
+                  >
+                    <ArrowUpRight size={14} /> + Aportar Capital
+                  </button>
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ padding: '6px 10px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                    onClick={() => window.open(`${API_URL}/api/sales/report?days=${statsDays}`, '_blank')}
+                    title="Descargar reporte de movimientos y flujo de caja en PDF"
+                  >
+                    <FileText size={14} /> Reporte PDF
+                  </button>
                 </div>
               </div>
 
@@ -1040,20 +1247,8 @@ export default function App() {
 
             </div>
 
-            {/* KPI Cards Grid */}
+            {/* KPI Cards Grid (4 tarjetas principales) */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '32px' }}>
-              
-              {/* Cobrado Real en Caja */}
-              <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px', border: '1px solid rgba(245, 158, 11, 0.3)', background: 'rgba(245, 158, 11, 0.05)' }}>
-                <div style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--status-warning)', padding: '12px', borderRadius: '12px' }}>
-                  <Coins size={24} />
-                </div>
-                <div>
-                  <div className="form-label" style={{ marginBottom: '2px', color: 'var(--status-warning)' }}>Cobrado Real en Caja</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>${kpiCollected.toFixed(2)}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Dinero líquido en mano / banco</div>
-                </div>
-              </div>
 
               {/* Total Facturado (Vendido) */}
               <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -1106,50 +1301,64 @@ export default function App() {
               </div>
             </div>
 
-            {/* Financial SVG Charts */}
+            {/* Financial SVG Charts (3 líneas: Total Facturado, Ganancias, Caja) */}
             <div className="card" style={{ padding: '30px' }}>
-              <h2 style={{ marginBottom: '24px' }}>Gráfico de Facturación, Cobranza y Ganancias ({statsDays} Días)</h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                <h2 style={{ margin: 0 }}>Gráfico de Facturación, Ganancias y Caja ({statsDays} Días)</h2>
+                <button 
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => window.open(`${API_URL}/api/sales/report?days=${statsDays}`, '_blank')}
+                >
+                  <FileText size={15} /> Descargar Reporte PDF
+                </button>
+              </div>
+
               {stats.chart && stats.chart.length > 0 ? (
                 <div style={{ width: '100%', overflowX: 'auto' }}>
                   <svg viewBox="0 0 900 320" style={{ width: '100%', height: '320px', minWidth: '600px' }}>
                     {(() => {
-                      const maxVal = Math.max(...stats.chart.map(c => Math.max(c.facturado || c.ingresos || 0, c.cobrado || 0, c.ganancias || 0, 10)));
-                      
-                      const pointsRevenue = stats.chart.map((c, i) => {
-                        const val = c.facturado !== undefined ? c.facturado : (c.ingresos || 0);
-                        const x = 60 + (i / Math.max(stats.chart.length - 1, 1)) * 800;
-                        const y = 280 - (val / maxVal) * 230;
-                        return `${x},${y}`;
-                      }).join(' ');
+                      const maxVal = Math.max(10, ...stats.chart.map(c => Math.max(c.facturado || 0, c.ganancias || 0, c.caja || 0)));
+                      const minVal = Math.min(0, ...stats.chart.map(c => Math.min(c.caja || 0, 0)));
+                      const range = (maxVal - minVal) || 1;
+                      const getY = (v) => 280 - ((v - minVal) / range) * 220;
 
-                      const pointsCollected = stats.chart.map((c, i) => {
-                        const val = c.cobrado !== undefined ? c.cobrado : (c.ingresos || 0);
+                      const pointsRevenue = stats.chart.map((c, i) => {
                         const x = 60 + (i / Math.max(stats.chart.length - 1, 1)) * 800;
-                        const y = 280 - (val / maxVal) * 230;
+                        const y = getY(c.facturado || 0);
                         return `${x},${y}`;
                       }).join(' ');
 
                       const pointsProfit = stats.chart.map((c, i) => {
-                        const val = c.ganancias || 0;
                         const x = 60 + (i / Math.max(stats.chart.length - 1, 1)) * 800;
-                        const y = 280 - (val / maxVal) * 230;
+                        const y = getY(c.ganancias || 0);
                         return `${x},${y}`;
                       }).join(' ');
 
+                      const pointsCash = stats.chart.map((c, i) => {
+                        const x = 60 + (i / Math.max(stats.chart.length - 1, 1)) * 800;
+                        const y = getY(c.caja !== undefined ? c.caja : 0);
+                        return `${x},${y}`;
+                      }).join(' ');
+
+                      const zeroY = getY(0);
+
                       return (
                         <>
-                          <line x1="50" y1="280" x2="880" y2="280" stroke="var(--border-color)" strokeWidth="1" />
-                          <line x1="50" y1="165" x2="880" y2="165" stroke="var(--border-color)" strokeWidth="1" strokeDasharray="4" opacity="0.4" />
-                          <line x1="50" y1="50" x2="880" y2="50" stroke="var(--border-color)" strokeWidth="1" strokeDasharray="4" opacity="0.4" />
+                          <line x1="50" y1={zeroY} x2="880" y2={zeroY} stroke="var(--border-color)" strokeWidth="1.5" />
+                          <line x1="50" y1={getY(maxVal)} x2="880" y2={getY(maxVal)} stroke="var(--border-color)" strokeWidth="1" strokeDasharray="4" opacity="0.4" />
+                          {minVal < 0 && (
+                            <line x1="50" y1={getY(minVal)} x2="880" y2={getY(minVal)} stroke="rgba(239, 68, 68, 0.4)" strokeWidth="1" strokeDasharray="4" />
+                          )}
                           
-                          {/* Línea Facturado (Venta total comercial) */}
+                          {/* 1. Línea Total Facturado (Morado) */}
                           <polyline fill="none" stroke="var(--brand-primary)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={pointsRevenue} />
                           
-                          {/* Línea Cobrado Real (Dinero en caja) */}
-                          <polyline fill="none" stroke="#f59e0b" strokeWidth="3" strokeDasharray="6 3" strokeLinecap="round" strokeLinejoin="round" points={pointsCollected} />
-                          
-                          {/* Línea Ganancias */}
+                          {/* 2. Línea Ganancias (Verde) */}
                           <polyline fill="none" stroke="var(--status-success)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={pointsProfit} />
+
+                          {/* 3. Línea Saldo Real en Caja (Amarillo/Ámbar) */}
+                          <polyline fill="none" stroke="#f59e0b" strokeWidth="3" strokeDasharray="6 3" strokeLinecap="round" strokeLinejoin="round" points={pointsCash} />
 
                           {stats.chart.map((c, i) => {
                             if (i % Math.ceil(stats.chart.length / 8) === 0 || i === stats.chart.length - 1) {
@@ -1163,8 +1372,11 @@ export default function App() {
                             return null;
                           })}
                           
-                          <text x="40" y="55" fill="var(--text-muted)" fontSize="11" textAnchor="end">${maxVal.toFixed(0)}</text>
-                          <text x="40" y="295" fill="var(--text-muted)" fontSize="11" textAnchor="end">$0</text>
+                          <text x="40" y={getY(maxVal) + 4} fill="var(--text-muted)" fontSize="11" textAnchor="end">${maxVal.toFixed(0)}</text>
+                          <text x="40" y={zeroY + 4} fill="var(--text-muted)" fontSize="11" textAnchor="end">$0</text>
+                          {minVal < 0 && (
+                            <text x="40" y={getY(minVal) + 4} fill="var(--status-danger)" fontSize="11" textAnchor="end">${minVal.toFixed(0)}</text>
+                          )}
                         </>
                       );
                     })()}
@@ -1176,12 +1388,12 @@ export default function App() {
                       Total Facturado (${kpiRevenue.toFixed(2)})
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                      <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#f59e0b' }}></span>
-                      Cobrado Real en Mano (${kpiCollected.toFixed(2)})
+                      <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--status-success)' }}></span>
+                      Ganancias (${kpiProfit.toFixed(2)})
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                      <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--status-success)' }}></span>
-                      Ganancia Neta (${kpiProfit.toFixed(2)})
+                      <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#f59e0b' }}></span>
+                      Saldo Real en Caja (${currentCash.toFixed(2)})
                     </div>
                   </div>
                 </div>
@@ -1555,48 +1767,206 @@ export default function App() {
                 </div>
               )}
 
-              {/* Customer Selector */}
+              {/* Customer Selector (Searchable Combobox & Manual Name) */}
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <label className="form-label" style={{ margin: 0 }}>Cliente</label>
                   <button 
                     type="button" 
-                    onClick={handleOpenAddCustomer}
+                    onClick={() => {
+                      setCustomerForm({ name: clientName || '', phone: '', email: '', address: '', notes: '' });
+                      setShowCustomerModal(true);
+                      setShowPosCustomerDropdown(false);
+                    }}
                     style={{ background: 'none', border: 'none', color: 'var(--brand-primary)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
                   >
                     + Nuevo Cliente
                   </button>
                 </div>
-                
-                <select 
-                  className="form-select"
-                  value={selectedCustomerId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setSelectedCustomerId(id);
-                    if (id) {
-                      const cust = customers.find(c => c.id === parseInt(id));
-                      if (cust) setClientName(cust.name);
-                    }
-                  }}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <option value="">Consumidor Final / Manual</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {c.total_debt > 0 ? `(Debe: $${c.total_debt.toFixed(2)})` : ''}
-                    </option>
-                  ))}
-                </select>
 
-                {!selectedCustomerId && (
-                  <input 
-                    type="text" 
-                    placeholder="Nombre del cliente o razón social" 
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    className="form-input"
-                  />
+                {/* If a registered customer is selected, show selected badge card */}
+                {selectedCustomerId ? (() => {
+                  const cust = customers.find(c => c.id === parseInt(selectedCustomerId));
+                  return (
+                    <div style={{ background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.3)', borderRadius: '10px', padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <div style={{ background: 'rgba(99, 102, 241, 0.2)', color: 'var(--brand-primary)', padding: '8px', borderRadius: '8px', flexShrink: 0 }}>
+                          <Users size={18} />
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {cust ? cust.name : clientName}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                            {cust?.phone ? `📞 ${cust.phone}` : 'Cliente Registrado'}
+                          </div>
+                          {cust && cust.total_debt > 0 && (
+                            <div style={{ fontSize: '0.72rem', color: 'var(--status-danger)', fontWeight: 700, marginTop: '2px' }}>
+                              ⚠️ Debe: ${cust.total_debt.toFixed(2)} (Bs. {(cust.total_debt * dollarRate).toFixed(2)})
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button 
+                        type="button" 
+                        className="btn btn-secondary" 
+                        style={{ padding: '5px 10px', fontSize: '0.75rem', flexShrink: 0 }}
+                        onClick={() => {
+                          setSelectedCustomerId('');
+                          setClientName('');
+                          setPosCustomerSearch('');
+                        }}
+                        title="Cambiar o quitar cliente"
+                      >
+                        <X size={14} /> Cambiar
+                      </button>
+                    </div>
+                  );
+                })() : (
+                  /* Search Input & Live Dropdown */
+                  <div style={{ position: 'relative' }}>
+                    {showPosCustomerDropdown && (
+                      <div 
+                        style={{ position: 'fixed', inset: 0, zIndex: 180 }} 
+                        onClick={() => setShowPosCustomerDropdown(false)} 
+                      />
+                    )}
+
+                    <div style={{ position: 'relative', zIndex: 190 }}>
+                      <input 
+                        type="text" 
+                        placeholder="Buscar cliente registrado o escribir nombre..."
+                        value={clientName}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setClientName(val);
+                          setPosCustomerSearch(val);
+                          setShowPosCustomerDropdown(true);
+                        }}
+                        onFocus={() => setShowPosCustomerDropdown(true)}
+                        className="form-input"
+                        style={{ paddingLeft: '36px', paddingRight: clientName ? '32px' : '12px' }}
+                      />
+                      <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '12px', pointerEvents: 'none' }} />
+                      {clientName && (
+                        <button 
+                          type="button" 
+                          onClick={() => { setClientName(''); setPosCustomerSearch(''); }}
+                          style={{ position: 'absolute', right: '10px', top: '10px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Floating Dropdown Results */}
+                    {showPosCustomerDropdown && (
+                      <div 
+                        style={{ 
+                          position: 'absolute', 
+                          top: '100%', 
+                          left: 0, 
+                          right: 0, 
+                          marginTop: '4px', 
+                          background: 'var(--bg-card)', 
+                          border: '1px solid var(--border-color)', 
+                          borderRadius: '10px', 
+                          boxShadow: '0 12px 32px rgba(0,0,0,0.6)', 
+                          zIndex: 200, 
+                          maxHeight: '260px', 
+                          overflowY: 'auto' 
+                        }}
+                      >
+                        {/* Option: Consumidor Final / Manual */}
+                        <div 
+                          style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                          onClick={() => {
+                            setSelectedCustomerId('');
+                            if (!clientName.trim()) setClientName('Consumidor Final');
+                            setShowPosCustomerDropdown(false);
+                          }}
+                          className="dropdown-hover"
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Users size={16} color="var(--text-muted)" />
+                            <div>
+                              <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                                {clientName.trim() ? `Usar como manual: "${clientName}"` : 'Consumidor Final (No registrado)'}
+                              </div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Venta sin asociar a cuenta cliente</div>
+                            </div>
+                          </div>
+                          <span className="badge badge-secondary" style={{ fontSize: '0.65rem' }}>Manual</span>
+                        </div>
+
+                        {/* Filtered Registered Customers List */}
+                        {(() => {
+                          const query = (clientName || '').toLowerCase().trim();
+                          const matched = customers.filter(c => 
+                            !query || 
+                            c.name.toLowerCase().includes(query) || 
+                            (c.phone && c.phone.includes(query)) || 
+                            (c.email && c.email.toLowerCase().includes(query))
+                          );
+
+                          if (matched.length === 0) {
+                            return (
+                              <div style={{ padding: '14px', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                  No hay clientes registrados con "{clientName}".
+                                </div>
+                                {clientName.trim() && (
+                                  <button 
+                                    type="button" 
+                                    className="btn btn-secondary" 
+                                    style={{ width: '100%', padding: '6px 10px', fontSize: '0.78rem' }}
+                                    onClick={() => {
+                                      setCustomerForm({ name: clientName, phone: '', email: '', address: '', notes: '' });
+                                      setShowCustomerModal(true);
+                                      setShowPosCustomerDropdown(false);
+                                    }}
+                                  >
+                                    + Registrar "{clientName}" en la base de datos
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          return matched.map(c => (
+                            <div 
+                              key={c.id}
+                              style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}
+                              onClick={() => {
+                                setSelectedCustomerId(c.id.toString());
+                                setClientName(c.name);
+                                setPosCustomerSearch('');
+                                setShowPosCustomerDropdown(false);
+                              }}
+                              className="dropdown-hover"
+                            >
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: '0.88rem', fontWeight: 600 }}>{c.name}</div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                                  {c.phone ? `📞 ${c.phone}` : (c.email || 'Cliente registrado')}
+                                </div>
+                              </div>
+                              {c.total_debt > 0 ? (
+                                <span className="badge badge-danger" style={{ fontSize: '0.7rem', flexShrink: 0 }}>
+                                  Debe: ${c.total_debt.toFixed(2)}
+                                </span>
+                              ) : (
+                                <span className="badge badge-success" style={{ fontSize: '0.7rem', flexShrink: 0 }}>
+                                  Al Día
+                                </span>
+                              )}
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -1929,149 +2299,358 @@ export default function App() {
         )}
 
         {/* ======================================================== */}
-        {/* 5. VIEW: HISTORY (HISTORIAL DE VENTAS) */}
+        {/* 5. VIEW: UNIFIED HISTORY (HISTORIAL DE ACTIVIDAD GENERAL) */}
         {/* ======================================================== */}
-        {currentView === 'history' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-              <div>
-                <h1>Historial de Ventas</h1>
-                <p style={{ color: 'var(--text-secondary)' }}>Consulta las transacciones realizadas, estados de crédito y comprobantes</p>
-              </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <a 
-                  href={`${API_URL}/api/sales/report?days=${statsDays}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn-primary"
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}
-                >
-                  <FileText size={18} />
-                  Descargar Reporte ({statsDays} Días)
-                </a>
-              </div>
-            </div>
+        {currentView === 'history' && (() => {
+          // Build unified timeline
+          const timeline = [];
 
-            <div className="table-container">
-              <table className="custom-table">
-                <thead>
-                  <tr>
-                    <th>Venta</th>
-                    <th>Fecha</th>
-                    <th>Cliente</th>
-                    <th>Pago & Estado</th>
-                    <th>Artículos</th>
-                    <th>Total Facturado</th>
-                    <th>Saldo</th>
-                    <th style={{ textAlign: 'right' }}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sales.length > 0 ? (
-                    sales.map(sale => (
-                      <tr key={sale.id}>
-                        <td style={{ fontWeight: 'bold' }}>#{sale.id}</td>
-                        <td>
-                          <div>{new Date(sale.date).toLocaleDateString()}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            {new Date(sale.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>{sale.client_name || 'Consumidor Final'}</div>
-                          {sale.customer_id && (
-                            <span className="badge badge-success" style={{ fontSize: '0.65rem' }}>Cliente Registrado</span>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
-                            <span className="badge badge-success" style={{ textTransform: 'uppercase' }}>
-                              {sale.payment_method}
-                            </span>
-                            {sale.payment_status === 'fiao' && (
-                              <span className="badge badge-danger">FIAO</span>
-                            )}
-                            {sale.payment_status === 'parcial' && (
-                              <span className="badge badge-warning">PARCIAL</span>
-                            )}
-                          </div>
-                          {sale.payment_reference && (
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Ref: {sale.payment_reference}</div>
-                          )}
-                          {(sale.has_capture || sale.payment_capture_base64) && (
-                            <button 
-                              type="button" 
-                              className="btn btn-secondary" 
-                              style={{ padding: '4px 8px', fontSize: '0.7rem', marginTop: '6px', width: '100%', display: 'block', textAlign: 'center' }} 
-                              onClick={() => {
-                                if (sale.payment_capture_base64) {
-                                  setSelectedCapture(sale.payment_capture_base64);
-                                } else {
-                                  handleViewCapture(sale.id);
-                                }
-                              }}
-                              disabled={loadingCaptureId === sale.id}
-                            >
-                              {loadingCaptureId === sale.id ? 'Cargando...' : 'Ver Capture'}
-                            </button>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            {sale.items.map((item, idx) => (
-                              <div key={idx}>• {item.product_name} x {item.quantity}</div>
-                            ))}
-                            {parseFloat(sale.delivery_cost) > 0 && <div style={{ color: 'var(--brand-secondary)' }}>• +Delivery</div>}
-                          </div>
-                        </td>
-                        <td style={{ fontWeight: 'bold' }}>
-                          <div>${(parseFloat(sale.total_revenue) || 0).toFixed(2)}</div>
-                          <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)', marginTop: '4px' }}>
-                            Bs. {((parseFloat(sale.total_revenue) || 0) * (parseFloat(sale.dollar_rate) || dollarRate)).toFixed(2)}
-                          </div>
-                        </td>
-                        <td>
-                          {sale.amount_pending > 0 ? (
-                            <div>
-                              <span className="badge badge-danger">Debe: ${sale.amount_pending.toFixed(2)}</span>
-                              <button 
-                                className="btn btn-secondary" 
-                                style={{ padding: '4px 8px', fontSize: '0.7rem', marginTop: '4px', width: '100%' }}
-                                onClick={() => handleOpenPaymentModal(sale)}
-                              >
-                                + Abonar
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="badge badge-success">Pagado</span>
-                          )}
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <a 
-                            href={`${API_URL}/api/sales/${sale.id}/invoice`} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="btn btn-secondary"
-                            style={{ padding: '8px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
-                          >
-                            <FileText size={16} />
-                            Factura
-                          </a>
+          // 1. Sales
+          sales.forEach(s => {
+            timeline.push({
+              id: `sale-${s.id}`,
+              rawId: s.id,
+              eventType: 'venta',
+              date: new Date(s.date),
+              title: `Venta #${s.id}`,
+              client: s.client_name || 'Consumidor Final',
+              isRegisteredCustomer: Boolean(s.customer_id),
+              items: s.items || [],
+              deliveryCost: parseFloat(s.delivery_cost) || 0,
+              amount: parseFloat(s.total_revenue) || 0,
+              amountPending: parseFloat(s.amount_pending) || 0,
+              paymentMethod: s.payment_method,
+              paymentStatus: s.payment_status,
+              paymentReference: s.payment_reference,
+              hasCapture: Boolean(s.has_capture || s.payment_capture_base64),
+              captureBase64: s.payment_capture_base64,
+              dollarRate: parseFloat(s.dollar_rate) || dollarRate,
+              originalSale: s
+            });
+          });
+
+          // 2. Cash movements (except ingreso_venta which is represented by sales)
+          cashMovements.forEach(m => {
+            if (m.type === 'ingreso_venta') return;
+            timeline.push({
+              id: `cash-${m.id}`,
+              rawId: m.id,
+              eventType: m.type,
+              date: new Date(m.date),
+              title: m.type === 'compra_inventario' ? 'Entrada de Stock' :
+                     m.type === 'retiro_dueno' ? 'Retiro del Dueño' :
+                     m.type === 'ingreso_capital' ? 'Aporte de Capital' :
+                     m.type === 'abono_fiao' ? 'Abono a Fiao' : 'Movimiento de Caja',
+              description: m.description,
+              notes: m.notes,
+              amount: parseFloat(m.amount) || 0,
+              direction: m.direction,
+              referenceId: m.reference_id,
+              dollarRate: dollarRate
+            });
+          });
+
+          // Sort chronologically descending
+          timeline.sort((a, b) => b.date - a.date);
+
+          // Counts for filter pills
+          const countSales = timeline.filter(t => t.eventType === 'venta').length;
+          const countInv = timeline.filter(t => t.eventType === 'compra_inventario').length;
+          const countCash = timeline.filter(t => ['retiro_dueno', 'ingreso_capital'].includes(t.eventType)).length;
+          const countAbonos = timeline.filter(t => t.eventType === 'abono_fiao').length;
+
+          // Filter by category
+          const filteredTimeline = timeline.filter(item => {
+            if (historyFilter === 'sales' && item.eventType !== 'venta') return false;
+            if (historyFilter === 'inventory' && item.eventType !== 'compra_inventario') return false;
+            if (historyFilter === 'cash' && !['retiro_dueno', 'ingreso_capital'].includes(item.eventType)) return false;
+            if (historyFilter === 'abonos' && item.eventType !== 'abono_fiao') return false;
+
+            if (historySearch.trim()) {
+              const q = historySearch.toLowerCase();
+              const clientMatch = item.client && item.client.toLowerCase().includes(q);
+              const descMatch = item.description && item.description.toLowerCase().includes(q);
+              const titleMatch = item.title && item.title.toLowerCase().includes(q);
+              const itemsMatch = item.items && item.items.some(it => it.product_name && it.product_name.toLowerCase().includes(q));
+              if (!clientMatch && !descMatch && !titleMatch && !itemsMatch) return false;
+            }
+            return true;
+          });
+
+          return (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
+                <div>
+                  <h1>Historial</h1>
+                  <p style={{ color: 'var(--text-secondary)' }}>Auditoría cronológica de ventas, compras de inventario, abonos y retiros/aportes</p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button 
+                    onClick={() => window.open(`${API_URL}/api/sales/report?days=${statsDays}`, '_blank')}
+                    className="btn btn-primary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    <FileText size={18} />
+                    Descargar Reporte ({statsDays} Días)
+                  </button>
+                </div>
+              </div>
+
+              {/* Filters & Search Toolbar */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button 
+                    className={`btn ${historyFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '8px 14px', fontSize: '0.85rem' }}
+                    onClick={() => setHistoryFilter('all')}
+                  >
+                    Todos ({timeline.length})
+                  </button>
+                  <button 
+                    className={`btn ${historyFilter === 'sales' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '8px 14px', fontSize: '0.85rem' }}
+                    onClick={() => setHistoryFilter('sales')}
+                  >
+                    Ventas ({countSales})
+                  </button>
+                  <button 
+                    className={`btn ${historyFilter === 'inventory' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '8px 14px', fontSize: '0.85rem' }}
+                    onClick={() => setHistoryFilter('inventory')}
+                  >
+                    Entradas de Stock ({countInv})
+                  </button>
+                  <button 
+                    className={`btn ${historyFilter === 'cash' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '8px 14px', fontSize: '0.85rem' }}
+                    onClick={() => setHistoryFilter('cash')}
+                  >
+                    Retiros & Aportes ({countCash})
+                  </button>
+                  <button 
+                    className={`btn ${historyFilter === 'abonos' ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '8px 14px', fontSize: '0.85rem' }}
+                    onClick={() => setHistoryFilter('abonos')}
+                  >
+                    Abonos ({countAbonos})
+                  </button>
+                </div>
+
+                <div style={{ position: 'relative', width: '280px', maxWidth: '100%' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Buscar en el historial..."
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    className="form-input"
+                    style={{ paddingLeft: '36px', height: '40px', fontSize: '0.88rem' }}
+                  />
+                  <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '12px' }} />
+                </div>
+              </div>
+
+              {/* Unified Table */}
+              <div className="table-container">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Tipo & Referencia</th>
+                      <th>Fecha</th>
+                      <th>Detalle / Concepto</th>
+                      <th>Método / Estado</th>
+                      <th style={{ textAlign: 'right' }}>Monto ($ / Bs.)</th>
+                      <th style={{ textAlign: 'right' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTimeline.length > 0 ? (
+                      filteredTimeline.map(item => {
+                        const isVenta = item.eventType === 'venta';
+                        const isCompra = item.eventType === 'compra_inventario';
+                        const isRetiro = item.eventType === 'retiro_dueno';
+                        const isAporte = item.eventType === 'ingreso_capital';
+                        const isAbono = item.eventType === 'abono_fiao';
+
+                        return (
+                          <tr key={item.id}>
+                            {/* 1. Tipo & Ref */}
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {isVenta && (
+                                  <span className="badge badge-success" style={{ fontWeight: 800, padding: '4px 8px', fontSize: '0.78rem' }}>
+                                    VENTA #{item.rawId}
+                                  </span>
+                                )}
+                                {isCompra && (
+                                  <span className="badge badge-danger" style={{ fontWeight: 800, padding: '4px 8px', fontSize: '0.78rem' }}>
+                                    ENTRADA STOCK
+                                  </span>
+                                )}
+                                {isRetiro && (
+                                  <span className="badge badge-warning" style={{ fontWeight: 800, padding: '4px 8px', fontSize: '0.78rem' }}>
+                                    RETIRO DUEÑO
+                                  </span>
+                                )}
+                                {isAporte && (
+                                  <span className="badge badge-success" style={{ fontWeight: 800, padding: '4px 8px', fontSize: '0.78rem' }}>
+                                    APORTE CAPITAL
+                                  </span>
+                                )}
+                                {isAbono && (
+                                  <span className="badge" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--brand-secondary)', fontWeight: 800, padding: '4px 8px', fontSize: '0.78rem' }}>
+                                    ABONO FIAO
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* 2. Fecha */}
+                            <td>
+                              <div>{item.date.toLocaleDateString()}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {item.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </td>
+
+                            {/* 3. Detalle / Concepto */}
+                            <td>
+                              {isVenta && (
+                                <div>
+                                  <div style={{ fontWeight: 600 }}>{item.client}</div>
+                                  {item.isRegisteredCustomer && (
+                                    <span className="badge badge-success" style={{ fontSize: '0.65rem' }}>Cliente Registrado</span>
+                                  )}
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                    {item.items.map((it, idx) => (
+                                      <span key={idx}>• {it.product_name} x{it.quantity} </span>
+                                    ))}
+                                    {item.deliveryCost > 0 && <span style={{ color: 'var(--brand-secondary)' }}>• +Delivery</span>}
+                                  </div>
+                                </div>
+                              )}
+                              {!isVenta && (
+                                <div>
+                                  <div style={{ fontWeight: 600 }}>{item.description}</div>
+                                  {item.notes && (
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                      Nota: {item.notes}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* 4. Método / Estado */}
+                            <td>
+                              {isVenta && (
+                                <div>
+                                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <span className="badge badge-secondary" style={{ textTransform: 'uppercase', fontSize: '0.72rem' }}>
+                                      {item.paymentMethod}
+                                    </span>
+                                    {item.paymentStatus === 'fiao' && <span className="badge badge-danger">FIAO</span>}
+                                    {item.paymentStatus === 'parcial' && <span className="badge badge-warning">PARCIAL</span>}
+                                    {item.paymentStatus === 'pagado' && <span className="badge badge-success">PAGADO</span>}
+                                  </div>
+                                  {item.paymentReference && (
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                      Ref: {item.paymentReference}
+                                    </div>
+                                  )}
+                                  {item.hasCapture && (
+                                    <button 
+                                      type="button" 
+                                      className="btn btn-secondary" 
+                                      style={{ padding: '3px 8px', fontSize: '0.7rem', marginTop: '4px' }} 
+                                      onClick={() => {
+                                        if (item.captureBase64) setSelectedCapture(item.captureBase64);
+                                        else handleViewCapture(item.rawId);
+                                      }}
+                                      disabled={loadingCaptureId === item.rawId}
+                                    >
+                                      {loadingCaptureId === item.rawId ? 'Cargando...' : 'Ver Capture'}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              {isCompra && <span className="badge badge-danger" style={{ fontSize: '0.72rem' }}>SALIDA CAJA</span>}
+                              {isRetiro && <span className="badge badge-warning" style={{ fontSize: '0.72rem' }}>RETIRO DUEÑO</span>}
+                              {isAporte && <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>INGRESO CAJA</span>}
+                              {isAbono && <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>INGRESO CAJA</span>}
+                            </td>
+
+                            {/* 5. Monto ($ / Bs.) */}
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ fontWeight: 800, fontSize: '0.95rem', color: (isCompra || isRetiro) ? 'var(--status-danger)' : 'var(--status-success)' }}>
+                                {(isCompra || isRetiro) ? '-' : '+'}${item.amount.toFixed(2)}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                Bs. {(item.amount * item.dollarRate).toFixed(2)}
+                              </div>
+                              {isVenta && item.amountPending > 0 && (
+                                <div style={{ marginTop: '4px' }}>
+                                  <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
+                                    Debe: ${item.amountPending.toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
+                            </td>
+
+                            {/* 6. Acciones */}
+                            <td style={{ textAlign: 'right' }}>
+                              {isVenta && (
+                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                  <a 
+                                    href={`${API_URL}/api/sales/${item.rawId}/invoice`} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="btn btn-secondary"
+                                    style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
+                                  >
+                                    <FileText size={14} /> Factura
+                                  </a>
+                                  {item.amountPending > 0 && (
+                                    <button 
+                                      className="btn btn-primary" 
+                                      style={{ padding: '6px 10px', fontSize: '0.75rem' }}
+                                      onClick={() => handleOpenPaymentModal(item.originalSale)}
+                                    >
+                                      + Abonar
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              {isAbono && item.referenceId && (
+                                <a 
+                                  href={`${API_URL}/api/sales/${item.referenceId}/invoice`} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="btn btn-secondary"
+                                  style={{ padding: '6px 10px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
+                                >
+                                  <FileText size={14} /> Factura
+                                </a>
+                              )}
+                              {!isVenta && !isAbono && (
+                                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                          No se encontraron transacciones en el historial.
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="8" style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
-                        No hay ventas registradas aún.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ======================================================== */}
         {/* 6. VIEW: CONFIGURATION (MARCA BLANCA / TASA / BACKUP) */}
@@ -2903,6 +3482,188 @@ export default function App() {
                 Cerrar Vista
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: RETIRO DE FONDOS DEL DUEÑO (CONTROL DE LIQUIDEZ) */}
+      {/* ======================================================== */}
+      {/* ======================================================== */}
+      {/* MODAL: RETIRO DE FONDOS DEL DUEÑO (CONTROL DE LIQUIDEZ) */}
+      {/* ======================================================== */}
+      {showWithdrawModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '20px' }}>
+          <div className="card" style={{ maxWidth: '480px', width: '100%', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--border-color)', boxShadow: '0 24px 48px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--status-warning)', padding: '8px', borderRadius: '8px' }}>
+                  <ArrowDownRight size={20} />
+                </div>
+                <h2 style={{ fontSize: '1.25rem', margin: 0 }}>Retirar Fondos de Caja</h2>
+              </div>
+              <button className="mobile-toggle-btn" onClick={() => setShowWithdrawModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Saldo Disponible */}
+            <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Saldo Disponible en Caja:</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: currentCash > 0 ? 'var(--status-success)' : 'var(--status-danger)' }}>
+                ${currentCash.toFixed(2)}
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                  (Bs. {(currentCash * dollarRate).toFixed(2)})
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleWithdrawSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Monto a Retirar ($ USD) *</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  min="0.01"
+                  max={Math.max(currentCash, 0)}
+                  className="form-input"
+                  placeholder="0.00"
+                  value={withdrawForm.amount}
+                  onChange={(e) => setWithdrawForm({ ...withdrawForm, amount: e.target.value })}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              {/* Advertencia de liquidez si retira más del 50% */}
+              {(() => {
+                const val = parseFloat(withdrawForm.amount) || 0;
+                if (val > currentCash && currentCash > 0) {
+                  return (
+                    <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', padding: '12px', borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                      <AlertCircle size={20} color="var(--status-danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                      <div style={{ fontSize: '0.82rem', color: 'var(--status-danger)' }}>
+                        <strong>Fondos insuficientes:</strong> El monto a retirar supera los ${currentCash.toFixed(2)} disponibles en caja. No se permite dejar la caja en saldo negativo.
+                      </div>
+                    </div>
+                  );
+                }
+                if (val > (currentCash * 0.5) && val <= currentCash && currentCash > 0) {
+                  const percent = Math.round((val / currentCash) * 100);
+                  return (
+                    <div style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.4)', padding: '12px', borderRadius: '8px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                      <AlertTriangle size={20} color="var(--status-warning)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                      <div style={{ fontSize: '0.82rem', color: 'var(--status-warning)' }}>
+                        <strong>⚠️ Alerta de Liquidez ({percent}% de la caja):</strong> Recuerda que los fondos del negocio tienen que mantenerse para reponer inventario y cubrir gastos operativos.
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Concepto o Motivo del Retiro</label>
+                <input 
+                  type="text" 
+                  className="form-input"
+                  placeholder="Ej: Ganancia personal, gastos operativos, etc."
+                  value={withdrawForm.notes}
+                  onChange={(e) => setWithdrawForm({ ...withdrawForm, notes: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  style={{ flex: 1, padding: '10px' }}
+                  onClick={() => setShowWithdrawModal(false)}
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  style={{ flex: 1, padding: '10px' }}
+                  disabled={isSubmittingCash || !withdrawForm.amount || parseFloat(withdrawForm.amount) <= 0 || parseFloat(withdrawForm.amount) > currentCash || currentCash <= 0}
+                >
+                  {isSubmittingCash ? 'Procesando...' : 'Confirmar Retiro'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: APORTE DE CAPITAL / FONDO DE CAJA */}
+      {/* ======================================================== */}
+      {showDepositModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '20px' }}>
+          <div className="card" style={{ maxWidth: '480px', width: '100%', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--border-color)', boxShadow: '0 24px 48px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--status-success)', padding: '8px', borderRadius: '8px' }}>
+                  <ArrowUpRight size={20} />
+                </div>
+                <h2 style={{ fontSize: '1.25rem', margin: 0 }}>Aportar Capital a Caja</h2>
+              </div>
+              <button className="mobile-toggle-btn" onClick={() => setShowDepositModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+              Ingresa dinero propio a la caja para cubrir compras iniciales de inventario o aumentar la liquidez del negocio.
+            </p>
+
+            <form onSubmit={handleDepositSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Monto a Ingresar ($ USD) *</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  min="0.01"
+                  className="form-input"
+                  placeholder="0.00"
+                  value={depositForm.amount}
+                  onChange={(e) => setDepositForm({ ...depositForm, amount: e.target.value })}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Concepto o Motivo del Aporte</label>
+                <input 
+                  type="text" 
+                  className="form-input"
+                  placeholder="Ej: Fondo inicial de apertura, inyección de capital"
+                  value={depositForm.notes}
+                  onChange={(e) => setDepositForm({ ...depositForm, notes: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  style={{ flex: 1, padding: '10px' }}
+                  onClick={() => setShowDepositModal(false)}
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  style={{ flex: 1, padding: '10px' }}
+                  disabled={isSubmittingCash || !depositForm.amount || parseFloat(depositForm.amount) <= 0}
+                >
+                  {isSubmittingCash ? 'Procesando...' : 'Registrar Aporte'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

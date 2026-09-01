@@ -97,3 +97,14 @@ class Sale(SQLModel, table=True):
     items: List[SaleItem] = Relationship(back_populates="sale")
     customer: Optional[Customer] = Relationship(back_populates="sales")
     payments: List[SalePayment] = Relationship(back_populates="sale")
+
+class CashMovement(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    type: str  # "compra_inventario", "ingreso_venta", "abono_fiao", "retiro_dueno", "ingreso_capital"
+    amount: Decimal = Field(default=Decimal("0.00"))
+    direction: str = "in"  # "in" (+) o "out" (-)
+    description: str
+    date: datetime = Field(default_factory=datetime.now)
+    reference_id: Optional[int] = None  # sale_id, product_id, etc.
+    notes: Optional[str] = None
+
