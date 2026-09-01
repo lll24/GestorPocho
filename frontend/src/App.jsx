@@ -52,12 +52,31 @@ export default function App() {
   
   const [productSearch, setProductSearch] = useState('');
   const [selectedCapture, setSelectedCapture] = useState(null); // Ver comprobante de pago
+  const [loadingCaptureId, setLoadingCaptureId] = useState(null); // ID de la venta cuyo comprobante se está cargando
   const [zoomScale, setZoomScale] = useState(1); // Control de zoom
   
   // Reiniciar zoom al abrir/cerrar comprobante
   useEffect(() => {
     setZoomScale(1);
   }, [selectedCapture]);
+
+  // Descargar captura de pago bajo demanda solo al hacer clic
+  const handleViewCapture = async (saleId) => {
+    setLoadingCaptureId(saleId);
+    try {
+      const res = await fetch(`${API_URL}/api/sales/${saleId}/capture`);
+      if (!res.ok) {
+        throw new Error('No se pudo obtener el comprobante');
+      }
+      const data = await res.json();
+      setSelectedCapture(data.capture);
+    } catch (err) {
+      console.error('Error al cargar comprobante:', err);
+      alert('No se pudo cargar el comprobante de pago.');
+    } finally {
+      setLoadingCaptureId(null);
+    }
+  };
   
   // Cart State (for Nueva Venta)
   const [cart, setCart] = useState([]);
@@ -1116,14 +1135,21 @@ export default function App() {
                           {sale.payment_reference && (
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Ref: {sale.payment_reference}</div>
                           )}
-                          {sale.payment_capture_base64 && (
+                          {(sale.has_capture || sale.payment_capture_base64) && (
                             <button 
                               type="button" 
                               className="btn btn-secondary" 
                               style={{ padding: '4px 8px', fontSize: '0.7rem', marginTop: '6px', width: '100%', display: 'block', textAlign: 'center' }} 
-                              onClick={() => setSelectedCapture(sale.payment_capture_base64)}
+                              onClick={() => {
+                                if (sale.payment_capture_base64) {
+                                  setSelectedCapture(sale.payment_capture_base64);
+                                } else {
+                                  handleViewCapture(sale.id);
+                                }
+                              }}
+                              disabled={loadingCaptureId === sale.id}
                             >
-                              Ver Capture
+                              {loadingCaptureId === sale.id ? 'Cargando...' : 'Ver Capture'}
                             </button>
                           )}
                         </td>

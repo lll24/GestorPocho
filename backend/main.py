@@ -63,6 +63,39 @@ class SaleCreate(BaseModel):
     client_name: Optional[str] = None
     delivery_cost: Decimal = Decimal("0.00")
 
+# --- Image Optimization Helper ---
+def optimize_base64_image(base64_str: Optional[str], max_size=(1000, 1000), quality=75) -> Optional[str]:
+    """Comprime y redimensiona imágenes Base64 antes de persistirlas en SQLite."""
+    if not base64_str:
+        return None
+    try:
+        header, data = base64_str.split(",", 1) if "," in base64_str else ("", base64_str)
+        img_bytes = base64.b64decode(data)
+        img = Image.open(io.BytesIO(img_bytes))
+        
+        # Convertir imágenes con transparencias o paletas a RGB con fondo blanco para JPEG
+        if img.mode in ("RGBA", "LA", "P"):
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            mask = img.split()[-1] if "A" in img.getbands() else None
+            bg.paste(img, mask=mask)
+            img = bg
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+            
+        img.thumbnail(max_size, Image.Resampling.LANCZOS)
+        
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=quality, optimize=True)
+        optimized_bytes = buffer.getvalue()
+        
+        if len(optimized_bytes) < len(img_bytes):
+            return f"data:image/jpeg;base64,{base64.b64encode(optimized_bytes).decode('utf-8')}"
+        return base64_str
+    except Exception:
+        return base64_str
+
 # --- API Endpoints ---
 
 # 1. Configuración de Marca Blanca
@@ -98,7 +131,10 @@ def get_products(session: Session = Depends(get_session)):
 
 @app.post("/api/products", response_model=Product)
 def create_product(product_data: ProductCreateUpdate, session: Session = Depends(get_session)):
-    product = Product(**product_data.model_dump())
+    product_dict = product_data.model_dump()
+    if product_dict.get("image_base64"):
+        product_dict["image_base64"] = optimize_base64_image(product_dict["image_base64"], max_size=(600, 600), quality=75)
+    product = Product(**product_dict)
     session.add(product)
     session.commit()
     session.refresh(product)
@@ -110,7 +146,11 @@ def update_product(product_id: int, product_data: ProductCreateUpdate, session: 
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    for key, value in product_data.model_dump().items():
+    data = product_data.model_dump()
+    if data.get("image_base64"):
+        data["image_base64"] = optimize_base64_image(data["image_base64"], max_size=(600, 600), quality=75)
+        
+    for key, value in data.items():
         setattr(product, key, value)
         
     session.add(product)
@@ -131,7 +171,7 @@ def delete_product(product_id: int, session: Session = Depends(get_session)):
 @app.get("/api/sales")
 def get_sales(session: Session = Depends(get_session)):
     sales = session.exec(select(Sale).order_by(Sale.date.desc())).all()
-    # Return sales with item details
+    # Retornar ventas con items y excluir el string pesado de payment_capture_base64
     result = []
     for sale in sales:
         items = []
@@ -143,10 +183,21 @@ def get_sales(session: Session = Depends(get_session)):
                 "unit_cost": item.unit_cost,
                 "unit_sale_price": item.unit_sale_price
             })
-        sale_dict = sale.model_dump()
+        sale_dict = sale.model_dump(exclude={"payment_capture_base64"})
+        sale_dict["has_capture"] = bool(sale.payment_capture_base64)
         sale_dict["items"] = items
         result.append(sale_dict)
     return result
+
+@app.get("/api/sales/{sale_id}/capture")
+def get_sale_capture(sale_id: int, session: Session = Depends(get_session)):
+    """Devuelve la captura de pago solo cuando el usuario la solicita en el frontend."""
+    sale = session.get(Sale, sale_id)
+    if not sale:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+    if not sale.payment_capture_base64:
+        raise HTTPException(status_code=404, detail="Esta venta no tiene comprobante de pago adjunto")
+    return {"capture": sale.payment_capture_base64}
 
 @app.post("/api/sales", response_model=Sale)
 def create_sale(sale_data: SaleCreate, session: Session = Depends(get_session)):
@@ -191,10 +242,13 @@ def create_sale(sale_data: SaleCreate, session: Session = Depends(get_session)):
         config = session.get(BusinessConfig, 1)
         active_dollar_rate = config.dollar_rate if config else Decimal("45.00")
         
+        # Comprimir comprobante de pago si existe para evitar inflar la base de datos
+        optimized_capture = optimize_base64_image(sale_data.payment_capture_base64, max_size=(1200, 1200), quality=80)
+
         sale = Sale(
             payment_method=sale_data.payment_method,
             payment_reference=sale_data.payment_reference,
-            payment_capture_base64=sale_data.payment_capture_base64,
+            payment_capture_base64=optimized_capture,
             client_name=sale_data.client_name,
             delivery_cost=sale_data.delivery_cost,
             total_cost=total_cost,
