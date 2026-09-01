@@ -388,14 +388,51 @@ export default function App() {
     fetchStats();
   }, [statsDays]);
 
-  // Image Helper
+  // Image Helper with Automatic Client-Side Mobile Compression
   const handleImageChange = (e, callback) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => callback(reader.result);
-      reader.readAsDataURL(file);
-    }
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    // Reset input value so re-selecting same file triggers change
+    e.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width = Math.round((width * MAX_HEIGHT) / height);
+            height = MAX_HEIGHT;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Convert to web-optimized JPEG at 0.75 quality (~50-80KB)
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+        callback(compressedBase64);
+      };
+      img.onerror = () => {
+        callback(event.target.result);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
   };
 
   // View Capture On Demand
@@ -1110,7 +1147,7 @@ export default function App() {
             </div>
 
             {/* HIGHLIGHT BANNER: TASA DEL DÓLAR, SALDO EN CAJA Y DEUDAS EN LA CALLE */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+            <div className="dashboard-banner-grid">
               
               {/* Tasa del Dólar Oficial del Sistema */}
               <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px', border: '1px solid rgba(16, 185, 129, 0.3)', background: 'rgba(16, 185, 129, 0.05)' }}>
@@ -1248,7 +1285,7 @@ export default function App() {
             </div>
 
             {/* KPI Cards Grid (4 tarjetas principales) */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+            <div className="kpi-cards-grid">
 
               {/* Total Facturado (Vendido) */}
               <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -1615,7 +1652,7 @@ export default function App() {
         {/* 3. VIEW: NUEVA VENTA (POS / CAJA) */}
         {/* ======================================================== */}
         {currentView === 'sale' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '24px', alignItems: 'start' }}>
+          <div className="pos-layout">
             
             {/* Left Column: Product Picker with Category Filters */}
             <div>
@@ -2808,7 +2845,7 @@ export default function App() {
             </div>
 
             {/* Categoría y Subcategoría */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div className="form-grid-2">
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Categoría</label>
                 <select 
@@ -2859,7 +2896,7 @@ export default function App() {
               
               return (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                  <div className="form-grid-3">
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label className="form-label">Costo Base ($)</label>
                       <input 
@@ -2900,7 +2937,7 @@ export default function App() {
                   </div>
 
                   {productForm.is_for_sale !== false && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div className="form-grid-3">
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label className="form-label">Margen Ganancia (%)</label>
                         <input 
