@@ -3,7 +3,7 @@ import io
 import os
 import sys
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, Query, Response, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,13 +62,19 @@ class ProductCreateUpdate(BaseModel):
     category_name: Optional[str] = "Ropa"
     subcategory_name: Optional[str] = "Camisas"
     is_for_sale: bool = True
-    cost_base: Decimal
-    cost_iva: Decimal
-    cost_shipping: Decimal
-    sale_price: Decimal
-    sale_extra: Decimal
-    stock: int
+    cost_base: Decimal = Decimal("0.00")
+    cost_iva: Decimal = Decimal("0.00")
+    cost_shipping: Decimal = Decimal("0.00")
+    sale_price: Decimal = Decimal("0.00")
+    sale_extra: Decimal = Decimal("0.00")
+    stock: int = 0
     image_base64: Optional[str] = None
+
+class StockAddRequest(BaseModel):
+    new_total_stock: Optional[int] = None
+    quantity: Optional[int] = None
+    unit_cost: Optional[Decimal] = None
+    notes: Optional[str] = None
 
 class SaleItemRequest(BaseModel):
     product_id: int
@@ -132,6 +138,23 @@ def optimize_base64_image(base64_str: Optional[str], max_size=(1000, 1000), qual
     except Exception:
         return base64_str
 
+import socket
+
+def get_local_ip() -> str:
+    """Detecta la IP local de la computadora en la red Wi-Fi/LAN."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.2)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except Exception:
+            return "127.0.0.1"
+
 # --- API Endpoints ---
 
 # 1. Configuración de Marca Blanca
@@ -149,7 +172,8 @@ def get_config(session: Session = Depends(get_session)):
         "logo_base64": config.logo_base64,
         "color_primary": config.color_primary,
         "theme": config.theme,
-        "dollar_rate": float(config.dollar_rate)
+        "dollar_rate": float(config.dollar_rate),
+        "local_ip": get_local_ip()
     }
 
 @app.put("/api/config")
@@ -373,7 +397,7 @@ def create_product(product_data: ProductCreateUpdate, session: Session = Depends
     session.commit()
     session.refresh(product)
 
-    # Registrar salida de caja por inversión de inventario inicial
+    # Registrar salida de caja por inversión de inventario inicial solo si stock > 0
     if product.stock > 0:
         unit_cost = product.cost_base * (Decimal("1") + product.cost_iva / Decimal("100")) + product.cost_shipping
         total_inv = product.stock * unit_cost
@@ -382,9 +406,11 @@ def create_product(product_data: ProductCreateUpdate, session: Session = Depends
                 type="compra_inventario",
                 amount=total_inv,
                 direction="out",
-                description=f"Compra inicial: {product.name} ({product.stock} unid.)",
+                description=f"Entrada de stock: {product.name} ({product.stock} unid.)",
                 reference_id=product.id,
-                date=datetime.now()
+                date=datetime.now(),
+                quantity=product.stock,
+                unit_cost=unit_cost
             )
             session.add(cash_mv)
             session.commit()
@@ -397,6 +423,10 @@ def update_product(product_id: int, product_data: ProductCreateUpdate, session: 
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
+    old_name = product.name
+    old_cost = product.cost_base * (Decimal("1") + product.cost_iva / Decimal("100")) + product.cost_shipping
+    old_stock = product.stock
+
     data = product_data.model_dump()
     if data.get("image_base64"):
         data["image_base64"] = optimize_base64_image(data["image_base64"], max_size=(600, 600), quality=75)
@@ -411,7 +441,32 @@ def update_product(product_id: int, product_data: ProductCreateUpdate, session: 
         if sub:
             data["subcategory_name"] = sub.name
 
-    old_stock = product.stock
+    # Validación previa si se intenta reducir el stock
+    new_stock = data.get("stock", old_stock)
+    today_start = datetime.combine(datetime.now().date(), time.min)
+    today_end = datetime.combine(datetime.now().date(), time.max)
+    existing_mv = session.exec(
+        select(CashMovement).where(
+            CashMovement.type == "compra_inventario",
+            CashMovement.reference_id == product.id,
+            CashMovement.date >= today_start,
+            CashMovement.date <= today_end
+        ).order_by(CashMovement.date.desc())
+    ).first()
+
+    if new_stock < old_stock:
+        reduce_units = old_stock - new_stock
+        if not existing_mv or not existing_mv.quantity or existing_mv.quantity <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No puedes reducir la cantidad de productos: hoy no hay entrada de este producto."
+            )
+        if reduce_units > existing_mv.quantity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No puedes reducir {reduce_units} unidades: hoy solo se registraron {existing_mv.quantity} unidades de entrada para este producto."
+            )
+
     for key, value in data.items():
         setattr(product, key, value)
         
@@ -419,24 +474,195 @@ def update_product(product_id: int, product_data: ProductCreateUpdate, session: 
     session.commit()
     session.refresh(product)
 
-    # Si se incrementó el stock, registrar salida de caja por reposición
-    if product.stock > old_stock:
-        added_units = product.stock - old_stock
-        unit_cost = product.cost_base * (Decimal("1") + product.cost_iva / Decimal("100")) + product.cost_shipping
-        total_added_inv = added_units * unit_cost
-        if total_added_inv > Decimal("0.00"):
-            cash_mv = CashMovement(
-                type="compra_inventario",
-                amount=total_added_inv,
-                direction="out",
-                description=f"Reposición de stock: {product.name} (+{added_units} unid.)",
-                reference_id=product.id,
-                date=datetime.now()
-            )
-            session.add(cash_mv)
+    new_cost = product.cost_base * (Decimal("1") + product.cost_iva / Decimal("100")) + product.cost_shipping
+
+    # Si cambió el nombre del producto, actualizar las descripciones de entradas de stock existentes
+    if product.name != old_name:
+        existing_mvs = session.exec(select(CashMovement).where(CashMovement.type == "compra_inventario", CashMovement.reference_id == product.id)).all()
+        for mv in existing_mvs:
+            if old_name in mv.description:
+                mv.description = mv.description.replace(old_name, product.name)
+                session.add(mv)
+        session.commit()
+
+    # Si cambió el stock en la edición (sea incremento o reducción de stock)
+    if product.stock != old_stock:
+        diff = product.stock - old_stock
+        if diff > 0:
+            total_added_inv = diff * new_cost
+            if total_added_inv > Decimal("0.00"):
+                if existing_mv:
+                    current_qty = existing_mv.quantity if existing_mv.quantity is not None else 0
+                    new_qty = current_qty + diff
+                    existing_mv.quantity = new_qty
+                    existing_mv.amount += total_added_inv
+                    existing_mv.description = f"Entrada de stock: {product.name} ({new_qty} unid.)"
+                    session.add(existing_mv)
+                else:
+                    cash_mv = CashMovement(
+                        type="compra_inventario",
+                        amount=total_added_inv,
+                        direction="out",
+                        description=f"Entrada de stock: {product.name} ({diff} unid.)",
+                        reference_id=product.id,
+                        date=datetime.now(),
+                        quantity=diff,
+                        unit_cost=new_cost
+                    )
+                    session.add(cash_mv)
+        else:
+            reduce_units = abs(diff)
+            reduce_amount = reduce_units * new_cost
+            if existing_mv:
+                current_qty = existing_mv.quantity if existing_mv.quantity is not None else 0
+                new_qty = current_qty - reduce_units
+                if new_qty > 0:
+                    existing_mv.quantity = new_qty
+                    existing_mv.amount = max(Decimal("0.00"), existing_mv.amount - reduce_amount)
+                    existing_mv.description = f"Entrada de stock: {product.name} ({new_qty} unid.)"
+                    session.add(existing_mv)
+                else:
+                    session.delete(existing_mv)
+        session.commit()
+    elif new_cost != old_cost:
+        # Si no cambió el stock pero se corrigió el costo y hay una entrada de HOY, sincronizarla
+        today_start = datetime.combine(datetime.now().date(), time.min)
+        today_end = datetime.combine(datetime.now().date(), time.max)
+        today_mv = session.exec(
+            select(CashMovement).where(
+                CashMovement.type == "compra_inventario",
+                CashMovement.reference_id == product.id,
+                CashMovement.date >= today_start,
+                CashMovement.date <= today_end
+            ).order_by(CashMovement.date.desc())
+        ).first()
+        if today_mv and today_mv.quantity:
+            today_mv.unit_cost = new_cost
+            today_mv.amount = today_mv.quantity * new_cost
+            session.add(today_mv)
             session.commit()
 
     return product
+
+@app.post("/api/products/{product_id}/add-stock")
+def add_product_stock(product_id: int, stock_data: StockAddRequest, session: Session = Depends(get_session)):
+    product = session.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+        
+    old_stock = product.stock
+    if stock_data.new_total_stock is not None:
+        if stock_data.new_total_stock < 0:
+            raise HTTPException(status_code=400, detail="El stock total no puede ser negativo.")
+        diff = stock_data.new_total_stock - old_stock
+        new_total = stock_data.new_total_stock
+    elif stock_data.quantity is not None:
+        diff = stock_data.quantity
+        new_total = max(0, old_stock + diff)
+    else:
+        raise HTTPException(status_code=400, detail="Debe indicar el nuevo total de stock o la cantidad a ingresar.")
+        
+    if diff == 0:
+        return {
+            "status": "success",
+            "message": f"El stock de {product.name} se mantiene en {product.stock}",
+            "product": product,
+            "movement": None
+        }
+
+    # Calcular costo unitario (usar el configurado en el producto)
+    unit_cost = stock_data.unit_cost
+    if unit_cost is None or unit_cost <= Decimal("0.00"):
+        unit_cost = product.cost_base * (Decimal("1") + product.cost_iva / Decimal("100")) + product.cost_shipping
+
+    today_start = datetime.combine(datetime.now().date(), time.min)
+    today_end = datetime.combine(datetime.now().date(), time.max)
+    
+    existing_mv = session.exec(
+        select(CashMovement).where(
+            CashMovement.type == "compra_inventario",
+            CashMovement.reference_id == product.id,
+            CashMovement.date >= today_start,
+            CashMovement.date <= today_end
+        ).order_by(CashMovement.date.desc())
+    ).first()
+
+    movement_result = None
+
+    if diff > 0:
+        added_amount = diff * unit_cost
+        if existing_mv:
+            current_qty = existing_mv.quantity if existing_mv.quantity is not None else 0
+            new_total_qty = current_qty + diff
+            existing_mv.quantity = new_total_qty
+            existing_mv.amount += added_amount
+            existing_mv.unit_cost = unit_cost
+            existing_mv.description = f"Entrada de stock: {product.name} ({new_total_qty} unid.)"
+            existing_mv.date = datetime.now()
+            if stock_data.notes:
+                existing_mv.notes = f"{existing_mv.notes or ''}; {stock_data.notes}".strip("; ")
+            session.add(existing_mv)
+            movement_result = existing_mv
+        else:
+            new_mv = CashMovement(
+                type="compra_inventario",
+                amount=added_amount,
+                direction="out",
+                description=f"Entrada de stock: {product.name} ({diff} unid.)",
+                reference_id=product.id,
+                date=datetime.now(),
+                quantity=diff,
+                unit_cost=unit_cost,
+                notes=stock_data.notes
+            )
+            session.add(new_mv)
+            movement_result = new_mv
+    else:
+        reduce_units = abs(diff)
+        if not existing_mv or not existing_mv.quantity or existing_mv.quantity <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No puedes reducir la cantidad de productos: hoy no hay entrada de este producto."
+            )
+        if reduce_units > existing_mv.quantity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No puedes reducir {reduce_units} unidades: hoy solo se registraron {existing_mv.quantity} unidades de entrada para este producto."
+            )
+
+        reduce_amount = reduce_units * unit_cost
+        current_qty = existing_mv.quantity
+        new_qty = current_qty - reduce_units
+        if new_qty > 0:
+            existing_mv.quantity = new_qty
+            existing_mv.amount = max(Decimal("0.00"), existing_mv.amount - reduce_amount)
+            existing_mv.description = f"Entrada de stock: {product.name} ({new_qty} unid.)"
+            session.add(existing_mv)
+            movement_result = existing_mv
+        else:
+            session.delete(existing_mv)
+            movement_result = None
+
+    # Actualizar stock final del producto (PRESERVANDO cost_base, cost_iva y cost_shipping)
+    product.stock = new_total
+    session.add(product)
+    session.commit()
+    session.refresh(product)
+    if movement_result:
+        session.refresh(movement_result)
+
+    return {
+        "status": "success",
+        "message": f"Stock de {product.name} actualizado a {product.stock} unidades ({'+' if diff > 0 else ''}{diff})",
+        "product": product,
+        "movement": {
+            "id": movement_result.id,
+            "quantity": movement_result.quantity,
+            "amount": float(movement_result.amount),
+            "description": movement_result.description,
+            "date": movement_result.date
+        } if movement_result else None
+    }
 
 @app.delete("/api/products/{product_id}")
 def delete_product(product_id: int, session: Session = Depends(get_session)):
@@ -933,7 +1159,7 @@ def get_cash_balance(session: Session = Depends(get_session)):
     }
 
 @app.get("/api/cash/movements")
-def get_cash_movements(limit: int = 50, session: Session = Depends(get_session)):
+def get_cash_movements(limit: int = 500, session: Session = Depends(get_session)):
     movements = session.exec(select(CashMovement).order_by(CashMovement.date.desc()).limit(limit)).all()
     return [
         {
@@ -944,7 +1170,9 @@ def get_cash_movements(limit: int = 50, session: Session = Depends(get_session))
             "description": m.description,
             "date": m.date,
             "reference_id": m.reference_id,
-            "notes": m.notes
+            "notes": m.notes,
+            "quantity": m.quantity,
+            "unit_cost": float(m.unit_cost) if m.unit_cost is not None else None
         } for m in movements
     ]
 

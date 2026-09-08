@@ -107,4 +107,6 @@ class CashMovement(SQLModel, table=True):
     date: datetime = Field(default_factory=datetime.now)
     reference_id: Optional[int] = None  # sale_id, product_id, etc.
     notes: Optional[str] = None
+    quantity: Optional[int] = None
+    unit_cost: Optional[Decimal] = None
 

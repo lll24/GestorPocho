@@ -7,6 +7,7 @@ import {
   Settings, 
   DollarSign, 
   Plus, 
+  PlusCircle,
   Trash2, 
   Upload, 
   FileText, 
@@ -127,6 +128,16 @@ export default function App() {
     stock: '',
     image_base64: null
   });
+
+  // Add Stock Modal
+  const [showAddStockModal, setShowAddStockModal] = useState(false);
+  const [stockProduct, setStockProduct] = useState(null);
+  const [addStockForm, setAddStockForm] = useState({
+    quantity: 1,
+    unit_cost: 0,
+    notes: ''
+  });
+  const [isSubmittingStock, setIsSubmittingStock] = useState(false);
 
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCategoryForm, setNewCategoryForm] = useState({ name: '', is_for_sale: true });
@@ -576,6 +587,13 @@ export default function App() {
     }
   };
 
+  const formatInputNumber = (val) => {
+    if (val === null || val === undefined || val === '') return '';
+    const num = parseFloat(val);
+    if (isNaN(num)) return '';
+    return Number(num.toFixed(2)).toString();
+  };
+
   const handleOpenAddProduct = () => {
     setEditingProduct(null);
     const defaultCat = categories[0] || { id: null, name: 'Ropa', is_for_sale: true, subcategories: [] };
@@ -587,11 +605,11 @@ export default function App() {
       subcategory_name: defaultCat.subcategories[0]?.name || '',
       is_for_sale: defaultCat.is_for_sale,
       cost_base: '',
-      cost_iva: 16,
+      cost_iva: 0,
       cost_shipping: '',
       sale_price: '',
       sale_extra: 0,
-      stock: '',
+      stock: 0,
       image_base64: null
     });
     setShowProductModal(true);
@@ -606,15 +624,67 @@ export default function App() {
       category_name: prod.category_name || 'Ropa',
       subcategory_name: prod.subcategory_name || 'Camisas',
       is_for_sale: prod.is_for_sale !== false,
-      cost_base: prod.cost_base,
-      cost_iva: prod.cost_iva,
-      cost_shipping: prod.cost_shipping,
-      sale_price: prod.sale_price,
-      sale_extra: prod.sale_extra,
-      stock: prod.stock,
+      cost_base: formatInputNumber(prod.cost_base),
+      cost_iva: formatInputNumber(prod.cost_iva),
+      cost_shipping: formatInputNumber(prod.cost_shipping),
+      sale_price: formatInputNumber(prod.sale_price),
+      sale_extra: formatInputNumber(prod.sale_extra),
+      stock: prod.stock || 0,
       image_base64: prod.image_base64
     });
     setShowProductModal(true);
+  };
+
+  const handleOpenAddStock = (prod) => {
+    setStockProduct(prod);
+    const base = parseFloat(prod.cost_base) || 0;
+    const iva = parseFloat(prod.cost_iva) || 0;
+    const shipping = parseFloat(prod.cost_shipping) || 0;
+    const unitCost = base * (1 + iva / 100) + shipping;
+    setAddStockForm({
+      new_total_stock: prod.stock || 0,
+      unit_cost: Number(unitCost.toFixed(2)),
+      notes: ''
+    });
+    setShowAddStockModal(true);
+  };
+
+  const submitAddStock = async (e) => {
+    e.preventDefault();
+    if (!stockProduct) return;
+    const newTotal = parseInt(addStockForm.new_total_stock);
+    if (isNaN(newTotal) || newTotal < 0) {
+      alert('El stock total no puede ser un número negativo.');
+      return;
+    }
+
+    setIsSubmittingStock(true);
+    try {
+      const res = await fetch(`${API_URL}/api/products/${stockProduct.id}/add-stock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_total_stock: newTotal,
+          unit_cost: parseFloat(addStockForm.unit_cost) || 0,
+          notes: addStockForm.notes ? addStockForm.notes.trim() : null
+        })
+      });
+
+      if (res.ok) {
+        setShowAddStockModal(false);
+        fetchProducts();
+        fetchCashData();
+        fetchStats();
+      } else {
+        const data = await res.json();
+        alert(data.detail || 'Error al actualizar el stock');
+      }
+    } catch (err) {
+      console.error('Error updating stock:', err);
+      alert('Error de conexión al actualizar stock');
+    } finally {
+      setIsSubmittingStock(false);
+    }
   };
 
   const saveProduct = async (e) => {
@@ -653,7 +723,8 @@ export default function App() {
         fetchStats();
         fetchCashData();
       } else {
-        alert('Error al guardar el producto.');
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.detail || 'Error al guardar el producto.');
       }
     } catch (err) {
       console.error('Error saving product:', err);
@@ -1087,14 +1158,27 @@ export default function App() {
             </ul>
           </nav>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Smartphone size={14} />
-              <span>Acceso en Red Local:</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 10px', borderTop: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--brand-primary)', fontWeight: 700 }}>
+              <Smartphone size={16} />
+              <span>Conectar Celular:</span>
             </div>
-            <span style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-              http://{window.location.hostname || 'IP_LOCAL'}:8000
-            </span>
+            <div style={{ 
+              background: 'rgba(99, 102, 241, 0.1)', 
+              border: '1px solid rgba(99, 102, 241, 0.25)', 
+              borderRadius: '8px', 
+              padding: '6px 8px', 
+              fontFamily: 'monospace', 
+              fontSize: '0.82rem',
+              color: 'var(--text-primary)',
+              wordBreak: 'break-all',
+              userSelect: 'all'
+            }}>
+              http://{config.local_ip || (window.location.hostname !== 'localhost' ? window.location.hostname : '192.168.X.X')}:{window.location.port || '8000'}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              Abre ese enlace en el navegador de tu celular (mismo Wi-Fi).
+            </div>
           </div>
         </aside>
 
@@ -1627,13 +1711,30 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
-                        <button className="btn btn-secondary" style={{ flex: 1, padding: '8px' }} onClick={() => handleOpenEditProduct(product)}>
-                          <Edit3 size={16} />
+                      <div style={{ display: 'flex', gap: '6px', marginTop: 'auto' }}>
+                        <button 
+                          className="btn btn-primary" 
+                          style={{ flex: 1.2, padding: '7px 10px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }} 
+                          onClick={() => handleOpenAddStock(product)}
+                        >
+                          <PlusCircle size={15} />
+                          + Stock
+                        </button>
+                        <button 
+                          className="btn btn-secondary" 
+                          style={{ flex: 1, padding: '7px 10px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }} 
+                          onClick={() => handleOpenEditProduct(product)}
+                        >
+                          <Edit3 size={15} />
                           Editar
                         </button>
-                        <button className="btn btn-danger" style={{ padding: '8px 12px' }} onClick={() => deleteProduct(product.id)}>
-                          <Trash2 size={16} />
+                        <button 
+                          className="btn btn-danger" 
+                          style={{ padding: '7px 10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+                          onClick={() => deleteProduct(product.id)}
+                          title="Eliminar producto"
+                        >
+                          <Trash2 size={15} />
                         </button>
                       </div>
                     </div>
@@ -1745,7 +1846,7 @@ export default function App() {
                       <div style={{ fontSize: '0.7rem', color: 'var(--brand-primary)', fontWeight: 600 }}>{p.category_name}</div>
                       <h4 style={{ fontWeight: 600, fontSize: '0.9rem', margin: '2px 0' }}>{p.name}</h4>
                       <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--brand-secondary)' }}>
-                        ${(parseFloat(p.sale_price) + parseFloat(p.sale_extra)).toFixed(2)}
+                        ${parseFloat(p.sale_price).toFixed(2)}
                       </div>
                       <span style={{ fontSize: '0.72rem', color: p.stock === 0 ? 'var(--status-danger)' : 'var(--text-secondary)' }}>
                         Stock: {p.stock} u.
@@ -2383,6 +2484,8 @@ export default function App() {
               amount: parseFloat(m.amount) || 0,
               direction: m.direction,
               referenceId: m.reference_id,
+              quantity: m.quantity,
+              unitCost: m.unit_cost,
               dollarRate: dollarRate
             });
           });
@@ -2568,6 +2671,11 @@ export default function App() {
                               {!isVenta && (
                                 <div>
                                   <div style={{ fontWeight: 600 }}>{item.description}</div>
+                                  {isCompra && item.quantity && item.unitCost && (
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--brand-secondary)', marginTop: '2px' }}>
+                                      {item.quantity} unidades × ${item.unitCost.toFixed(2)} c/u
+                                    </div>
+                                  )}
                                   {item.notes && (
                                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                                       Nota: {item.notes}
@@ -2937,7 +3045,7 @@ export default function App() {
                   </div>
 
                   {productForm.is_for_sale !== false && (
-                    <div className="form-grid-3">
+                    <div className="form-grid-2">
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label className="form-label">Margen Ganancia (%)</label>
                         <input 
@@ -2959,16 +3067,6 @@ export default function App() {
                           className="form-input" 
                         />
                       </div>
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">Adicional ($)</label>
-                        <input 
-                          type="number" 
-                          step="0.01"
-                          value={productForm.sale_extra}
-                          onChange={(e) => setProductForm({ ...productForm, sale_extra: e.target.value })}
-                          className="form-input" 
-                        />
-                      </div>
                     </div>
                   )}
 
@@ -2976,11 +3074,15 @@ export default function App() {
                     <label className="form-label">Stock en Inventario</label>
                     <input 
                       type="number" 
+                      min="0"
                       value={productForm.stock}
                       onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })}
-                      required 
+                      required
                       className="form-input" 
                     />
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                      💡 Puedes ajustar el total de stock aquí o con el botón <strong>"+ Stock"</strong> en la tarjeta.
+                    </span>
                   </div>
                 </>
               );
@@ -3013,6 +3115,206 @@ export default function App() {
               </button>
               <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
                 Guardar Producto
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: GESTIONAR STOCK (POR STOCK TOTAL) */}
+      {/* ======================================================== */}
+      {showAddStockModal && stockProduct && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+          <form onSubmit={submitAddStock} className="card" style={{ width: '100%', maxWidth: '520px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <PlusCircle size={22} color="var(--brand-primary)" />
+                  Gestionar Stock
+                </h2>
+                <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+                  Indica el total físico de unidades que tienes actualmente
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowAddStockModal(false)}
+                className="btn btn-secondary" 
+                style={{ padding: '6px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Product Brief */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
+              {stockProduct.image_base64 ? (
+                <img src={stockProduct.image_base64} alt={stockProduct.name} style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '8px' }} />
+              ) : (
+                <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Package size={22} color="var(--text-muted)" />
+                </div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h4 style={{ margin: 0, fontSize: '1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stockProduct.name}</h4>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '4px', fontSize: '0.78rem' }}>
+                  <span className="badge badge-secondary">{stockProduct.category_name || 'Ropa'}</span>
+                  <span className="badge badge-warning" style={{ fontWeight: 800 }}>Stock actual: {stockProduct.stock} unid.</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Nuevo Stock Total Input con botones rápidos */}
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label className="form-label" style={{ margin: 0 }}>Nuevo Stock Total en Tienda</label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    style={{ padding: '3px 8px', fontSize: '0.75rem' }}
+                    onClick={() => setAddStockForm({ ...addStockForm, new_total_stock: Math.max(0, (parseInt(addStockForm.new_total_stock) || 0) - 1) })}
+                  >
+                    -1
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    style={{ padding: '3px 8px', fontSize: '0.75rem' }}
+                    onClick={() => setAddStockForm({ ...addStockForm, new_total_stock: (parseInt(addStockForm.new_total_stock) || 0) + 1 })}
+                  >
+                    +1
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    style={{ padding: '3px 8px', fontSize: '0.75rem' }}
+                    onClick={() => setAddStockForm({ ...addStockForm, new_total_stock: (parseInt(addStockForm.new_total_stock) || 0) + 5 })}
+                  >
+                    +5
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    style={{ padding: '3px 8px', fontSize: '0.75rem' }}
+                    onClick={() => setAddStockForm({ ...addStockForm, new_total_stock: (parseInt(addStockForm.new_total_stock) || 0) + 10 })}
+                  >
+                    +10
+                  </button>
+                </div>
+              </div>
+              <input 
+                type="number" 
+                min="0" 
+                step="1"
+                value={addStockForm.new_total_stock}
+                onChange={(e) => setAddStockForm({ ...addStockForm, new_total_stock: e.target.value })}
+                required
+                className="form-input" 
+                style={{ fontSize: '1.3rem', fontWeight: 800, textAlign: 'center', height: '48px' }}
+                autoFocus
+              />
+            </div>
+
+            {/* Costo Unitario */}
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Costo Unitario de Referencia ($)</label>
+              <input 
+                type="number" 
+                step="0.01"
+                min="0"
+                value={addStockForm.unit_cost}
+                onChange={(e) => setAddStockForm({ ...addStockForm, unit_cost: e.target.value })}
+                required
+                className="form-input" 
+                style={{ fontSize: '1rem', fontWeight: 600 }}
+              />
+            </div>
+
+            {/* Diferencia & Impacto en Caja */}
+            {(() => {
+              const currentStock = stockProduct.stock || 0;
+              const newTotal = parseInt(addStockForm.new_total_stock) || 0;
+              const diff = newTotal - currentStock;
+              const unitC = parseFloat(addStockForm.unit_cost) || 0;
+              const totalAmount = Math.abs(diff) * unitC;
+
+              if (diff > 0) {
+                return (
+                  <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '10px', padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--status-danger)' }}>
+                        🟢 Entrada: +{diff} unidades nuevas
+                      </span>
+                      <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--status-danger)' }}>
+                        -${totalAmount.toFixed(2)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      <span>Salida de Caja (Tasa {dollarRate.toFixed(2)}):</span>
+                      <span>Bs. {(totalAmount * dollarRate).toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              } else if (diff < 0) {
+                return (
+                  <div style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: '10px', padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--status-warning)' }}>
+                        🟡 Reducción: -{Math.abs(diff)} unidades (Corrección)
+                      </span>
+                      <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--status-warning)' }}>
+                        +${totalAmount.toFixed(2)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      <span>Ajuste en Caja (Tasa {dollarRate.toFixed(2)}):</span>
+                      <span>Bs. {(totalAmount * dollarRate).toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              } else {
+                return (
+                  <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '10px 14px', fontSize: '0.85rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                    ⚪ El stock se mantendrá igual en <strong>{currentStock} unidades</strong> (sin movimientos en caja).
+                  </div>
+                );
+              }
+            })()}
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Nota o Referencia (Opcional)</label>
+              <input 
+                type="text" 
+                value={addStockForm.notes}
+                onChange={(e) => setAddStockForm({ ...addStockForm, notes: e.target.value })}
+                placeholder="Ej. Factura #402 / Pedido de la tarde"
+                className="form-input" 
+              />
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px 12px', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+              ℹ️ <strong>Consolidación del día:</strong> Los ajustes y entradas de stock realizados el mismo día se consolidan automáticamente en una sola fila en el Historial para evitar registros duplicados.
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                style={{ flex: 1 }} 
+                onClick={() => setShowAddStockModal(false)}
+                disabled={isSubmittingStock}
+              >
+                Cancelar
+              </button>
+              <button 
+                type="submit" 
+                className="btn btn-primary" 
+                style={{ flex: 1 }}
+                disabled={isSubmittingStock}
+              >
+                {isSubmittingStock ? 'Guardando...' : `Confirmar Stock (${addStockForm.new_total_stock || 0} unid.)`}
               </button>
             </div>
           </form>

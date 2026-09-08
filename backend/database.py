@@ -49,6 +49,14 @@ def run_migrations():
             if "amount_pending" not in sale_cols:
                 conn.execute(text("ALTER TABLE sale ADD COLUMN amount_pending NUMERIC DEFAULT 0.00"))
         
+        # 3. Columnas en tabla cashmovement
+        cash_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(cashmovement)")).fetchall()]
+        if cash_cols:
+            if "quantity" not in cash_cols:
+                conn.execute(text("ALTER TABLE cashmovement ADD COLUMN quantity INTEGER"))
+            if "unit_cost" not in cash_cols:
+                conn.execute(text("ALTER TABLE cashmovement ADD COLUMN unit_cost NUMERIC"))
+        
         conn.commit()
 
 def create_db_and_tables():
