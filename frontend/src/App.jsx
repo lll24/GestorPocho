@@ -529,6 +529,34 @@ export default function App() {
     }
   };
 
+  const handleResetStockAndHistory = async () => {
+    const confirmation = prompt('⚠️ ATENCIÓN: Esta acción vaciará todo el historial de movimientos de caja y ventas, y pondrá el stock de TODOS tus productos en 0 para arrancar limpio con el nuevo sistema diario.\n\nTus productos, categorías, fotos, costos y precios se mantendrán intactos.\n\nPara confirmar, escribe REINICIAR (en mayúsculas):');
+    if (confirmation !== 'REINICIAR') {
+      if (confirmation !== null) alert('Operación cancelada. El texto no coincidió.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/api/maintenance/reset-stock-and-history`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(data.message || 'Historial reiniciado y stock establecido en 0 con éxito.');
+        fetchProducts();
+        fetchSales();
+        fetchCashData();
+        fetchStats();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(`Error: ${errData.detail || 'No se pudo reiniciar el historial'}`);
+      }
+    } catch (err) {
+      console.error('Error resetting stock and history:', err);
+      alert('Error de conexión al intentar reiniciar.');
+    }
+  };
+
   // --- PRODUCT CRUD HELPERS ---
   const handleCostChange = (field, value) => {
     const updatedForm = { ...productForm, [field]: value };
@@ -2924,6 +2952,39 @@ export default function App() {
                     Restaurar Respaldo (.db)
                   </label>
                 </div>
+              </div>
+            </div>
+
+            {/* Maintenance: Reset Stock & History */}
+            <div className="card" style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid rgba(239, 68, 68, 0.35)', background: 'rgba(239, 68, 68, 0.03)' }}>
+              <div>
+                <h3 style={{ margin: 0, color: 'var(--status-danger)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertTriangle size={18} /> Zona de Mantenimiento: Reiniciar Historial y Stock
+                </h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '6px', marginBottom: 0, lineHeight: 1.4 }}>
+                  Vacía todo el historial de movimientos de caja y ventas pasadas, y coloca el stock de todos tus productos en <strong>0 unidades</strong> para comenzar limpio con el nuevo sistema de entradas diarias. Tu catálogo (nombres, fotos, costos, precios, clientes y categorías) se mantendrá <strong>100% intacto</strong>.
+                </p>
+              </div>
+              
+              <div>
+                <button 
+                  type="button"
+                  onClick={handleResetStockAndHistory}
+                  className="btn btn-secondary"
+                  style={{ 
+                    color: 'var(--status-danger)', 
+                    borderColor: 'rgba(239, 68, 68, 0.45)', 
+                    display: 'inline-flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    padding: '10px 16px',
+                    fontWeight: 600,
+                    fontSize: '0.88rem'
+                  }}
+                >
+                  <Trash2 size={16} />
+                  Reiniciar Historial y poner Stock en 0
+                </button>
               </div>
             </div>
           </div>

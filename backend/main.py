@@ -9,12 +9,13 @@ from fastapi import FastAPI, Depends, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlmodel import Session, select
+from sqlalchemy import text
 from decimal import Decimal
 from pydantic import BaseModel
 from fpdf import FPDF
 from PIL import Image
 
-from database import engine, create_db_and_tables, get_session, DATABASE_FILE
+from database import engine, create_db_and_tables, run_migrations, get_session, DATABASE_FILE
 from models import BusinessConfig, Product, Sale, SaleItem, Category, Subcategory, Customer, SalePayment, CashMovement
 
 # FastAPI initialization
@@ -1259,14 +1260,51 @@ def restore_backup(file: UploadFile = File(...), session: Session = Depends(get_
         
     session.close()
     engine.dispose()
-    
+
+    # Eliminar posibles archivos de journaling/WAL antiguos para evitar corrupción
+    for ext in ["-wal", "-shm"]:
+        wal_file = db_path + ext
+        if os.path.exists(wal_file):
+            try:
+                os.remove(wal_file)
+            except Exception:
+                pass
+
     try:
         with open(db_path, "wb") as f:
             f.write(content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al escribir la base de datos: {str(e)}")
+
+    # Ejecutar de inmediato la creación de tablas y migraciones sobre la base restaurada
+    try:
+        create_db_and_tables()
+        run_migrations()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al migrar la base de datos restaurada: {str(e)}")
         
-    return {"message": "Database restored successfully"}
+    return {"message": "Base de datos restaurada y actualizada exitosamente"}
+
+@app.post("/api/maintenance/reset-stock-and-history")
+def reset_stock_and_history(session: Session = Depends(get_session)):
+    try:
+        # 1. Vaciar historial de movimientos de caja
+        session.exec(text("DELETE FROM cashmovement"))
+        # 2. Vaciar ventas y pagos para arrancar limpios
+        session.exec(text("DELETE FROM saleitem"))
+        session.exec(text("DELETE FROM salepayment"))
+        session.exec(text("DELETE FROM sale"))
+        # 3. Poner el stock de todos los productos en 0 (conservando nombres, precios, fotos, categorías)
+        session.exec(text("UPDATE product SET stock = 0"))
+        session.commit()
+        return {
+            "status": "success",
+            "message": "Historial y ventas eliminados correctamente. El stock de todos los productos se ha establecido en 0."
+        }
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al reiniciar historial y stock: {str(e)}")
+
 
 # 8. Reporte Global de Ventas y Caja en PDF
 @app.get("/api/sales/report")
@@ -1464,10 +1502,10 @@ if __name__ == "__main__":
     import uvicorn
     import webbrowser
     import threading
-    import time
+    import time as time_module
 
     def open_browser():
-        time.sleep(1.5)
+        time_module.sleep(1.5)
         webbrowser.open("http://localhost:8000")
 
     threading.Thread(target=open_browser, daemon=True).start()
