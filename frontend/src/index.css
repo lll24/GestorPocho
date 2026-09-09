@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 
 :root {
+  color-scheme: dark;
   /* Dynamic values overridden by backend config */
   --brand-primary: #6366f1;
   --brand-secondary: #06b6d4;
@@ -27,6 +28,7 @@
 
 /* Light mode overrides if requested (fallback/optional) */
 body.light-theme {
+  color-scheme: light;
   --bg-app: #f8fafc;
   --bg-card: rgba(255, 255, 255, 0.8);
   --bg-card-hover: rgba(255, 255, 255, 0.95);
@@ -232,6 +234,25 @@ h2 {
 .form-input:focus, .form-select:focus, .form-textarea:focus {
   border-color: var(--brand-primary);
   box-shadow: 0 0 0 3px var(--brand-primary-glow);
+}
+
+.form-select, select {
+  color-scheme: dark;
+}
+
+body.light-theme .form-select, body.light-theme select {
+  color-scheme: light;
+}
+
+.form-select option, select option {
+  background-color: #1a1c23;
+  color: #f3f4f6;
+  padding: 8px 12px;
+}
+
+body.light-theme .form-select option, body.light-theme select option {
+  background-color: #ffffff;
+  color: #0f172a;
 }
 
 /* Buttons */
