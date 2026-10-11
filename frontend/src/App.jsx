@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ToastProvider } from './context/ToastContext';
 import { AppProvider, useApp } from './context/AppContext';
 import { api } from './services/api';
 
@@ -24,9 +25,10 @@ import PaymentModal from './components/modals/PaymentModal';
 import WithdrawModal from './components/modals/WithdrawModal';
 import DepositModal from './components/modals/DepositModal';
 import CaptureLightboxModal from './components/modals/CaptureLightboxModal';
+import VoidSaleModal from './components/modals/VoidSaleModal';
 
 function MainApp() {
-  const { config } = useApp();
+  const { config, toast } = useApp();
 
   // Navigation state
   const [currentView, setCurrentView] = useState('dashboard');
@@ -49,11 +51,19 @@ function MainApp() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [activeSaleForPayment, setActiveSaleForPayment] = useState(null);
 
+  const [showVoidSaleModal, setShowVoidSaleModal] = useState(false);
+  const [selectedSaleToVoid, setSelectedSaleToVoid] = useState(null);
+
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
 
   const [selectedCapture, setSelectedCapture] = useState(null);
   const [customerDebtFilter, setCustomerDebtFilter] = useState('all');
+
+  const handleOpenVoidModal = (sale) => {
+    setSelectedSaleToVoid(sale);
+    setShowVoidSaleModal(true);
+  };
 
   // Customer Detail fetcher
   const handleViewCustomerDetail = async (customerOrId) => {
@@ -68,11 +78,11 @@ function MainApp() {
       if (detail && detail.customer) {
         setSelectedCustomerDetail(detail);
       } else {
-        alert('No se pudo cargar la ficha del cliente.');
+        toast.error('No se pudo cargar la ficha del cliente.');
       }
     } catch (err) {
       console.error('Error fetching customer detail:', err);
-      alert('Error de conexión al cargar la ficha del cliente.');
+      toast.error('Error de conexión al cargar la ficha del cliente.');
     }
   };
 
@@ -159,6 +169,7 @@ function MainApp() {
               setActiveSaleForPayment(sale);
               setShowPaymentModal(true);
             }}
+            onOpenVoidModal={handleOpenVoidModal}
             onViewCapture={(url) => setSelectedCapture(url)}
           />
         )}
@@ -202,6 +213,7 @@ function MainApp() {
           setActiveSaleForPayment(sale);
           setShowPaymentModal(true);
         }}
+        onOpenVoidModal={handleOpenVoidModal}
       />
 
       <PaymentModal 
@@ -212,6 +224,20 @@ function MainApp() {
           setActiveSaleForPayment(null);
         }}
         onSuccess={handlePaymentSuccess}
+      />
+
+      <VoidSaleModal 
+        isOpen={showVoidSaleModal}
+        sale={selectedSaleToVoid}
+        onClose={() => {
+          setShowVoidSaleModal(false);
+          setSelectedSaleToVoid(null);
+        }}
+        onSuccess={() => {
+          if (selectedCustomerDetail) {
+            handleViewCustomerDetail(selectedCustomerDetail.customer.id);
+          }
+        }}
       />
 
       <WithdrawModal 
@@ -234,8 +260,10 @@ function MainApp() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainApp />
-    </AppProvider>
+    <ToastProvider>
+      <AppProvider>
+        <MainApp />
+      </AppProvider>
+    </ToastProvider>
   );
 }

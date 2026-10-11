@@ -3,9 +3,10 @@ import { Upload } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import { handleImageChange } from '../../utils/imageCompressor';
+import { getImageUrl } from '../../utils/imageUrl';
 
 export default function ProductModal({ isOpen, editingProduct, onClose }) {
-  const { categories, fetchProducts, fetchStats, fetchCash } = useApp();
+  const { categories, fetchProducts, fetchStats, fetchCash, toast } = useApp();
 
   const [productForm, setProductForm] = useState({
     name: '',
@@ -154,17 +155,18 @@ export default function ProductModal({ isOpen, editingProduct, onClose }) {
         : await api.createProduct(payload);
 
       if (res.ok) {
+        toast.success(editingProduct ? 'Producto actualizado con éxito.' : 'Producto creado con éxito.');
         onClose();
         fetchProducts();
         fetchStats();
         fetchCash();
       } else {
         const errData = await res.json().catch(() => ({}));
-        alert(errData.detail || 'Error al guardar el producto.');
+        toast.error(errData.detail || 'Error al guardar el producto.');
       }
     } catch (err) {
       console.error('Error saving product:', err);
-      alert('Error de conexión al guardar el producto.');
+      toast.error('Error de conexión al guardar el producto.');
     } finally {
       setIsSubmitting(false);
     }
@@ -179,8 +181,8 @@ export default function ProductModal({ isOpen, editingProduct, onClose }) {
   const modalProfitPercent = modalTotalCost > 0 ? ((salePriceNum / modalTotalCost) - 1) * 100 : 30;
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-      <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="modal-backdrop">
+      <form onSubmit={handleSubmit} className="card modal-card" style={{ maxWidth: '650px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <h2>{editingProduct ? 'Editar Producto' : 'Agregar Producto al Inventario'}</h2>
 
         <div className="form-group" style={{ marginBottom: 0 }}>
@@ -332,7 +334,7 @@ export default function ProductModal({ isOpen, editingProduct, onClose }) {
           </label>
           {productForm.image_base64 && (
             <div style={{ textAlign: 'center', marginTop: '8px' }}>
-              <img src={productForm.image_base64} alt="Preview" style={{ maxHeight: '80px', borderRadius: '6px' }} />
+              <img src={getImageUrl(productForm.image_base64)} alt="Preview" style={{ maxHeight: '80px', borderRadius: '6px' }} />
               <br />
               <button type="button" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', marginTop: '4px' }} onClick={() => setProductForm({ ...productForm, image_base64: null })}>Quitar</button>
             </div>

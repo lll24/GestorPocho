@@ -10,6 +10,7 @@ import {
   X
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { getImageUrl } from '../../utils/imageUrl';
 
 export default function Sidebar({ currentView, setCurrentView, sidebarOpen, setSidebarOpen }) {
   const { config, stats } = useApp();
@@ -31,7 +32,7 @@ export default function Sidebar({ currentView, setCurrentView, sidebarOpen, setS
         <div className="brand-section" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {config.logo_base64 ? (
-              <img src={config.logo_base64} alt="Logo" className="brand-logo" />
+              <img src={getImageUrl(config.logo_base64)} alt="Logo" className="brand-logo" />
             ) : (
               <div className="brand-logo-placeholder">{config.name?.charAt(0)?.toUpperCase() || 'G'}</div>
             )}

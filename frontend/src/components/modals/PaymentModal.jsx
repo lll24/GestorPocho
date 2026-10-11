@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 
 export default function PaymentModal({ isOpen, sale, onClose, onSuccess }) {
-  const { config, fetchSales, fetchCustomers, fetchStats, fetchCash } = useApp();
+  const { config, fetchSales, fetchCustomers, fetchStats, fetchCash, toast } = useApp();
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
     payment_method: 'divisas',
@@ -22,7 +22,7 @@ export default function PaymentModal({ isOpen, sale, onClose, onSuccess }) {
     e.preventDefault();
     const payAmount = parseFloat(paymentForm.amount);
     if (!payAmount || payAmount <= 0) {
-      alert('Ingresa un monto válido.');
+      toast.warning('Ingresa un monto válido.');
       return;
     }
 
@@ -36,7 +36,7 @@ export default function PaymentModal({ isOpen, sale, onClose, onSuccess }) {
       });
 
       if (res.ok) {
-        alert('¡Abono registrado con éxito!');
+        toast.success('¡Abono registrado con éxito!');
         setPaymentForm({
           amount: '',
           payment_method: 'divisas',
@@ -51,19 +51,19 @@ export default function PaymentModal({ isOpen, sale, onClose, onSuccess }) {
         if (onSuccess) onSuccess();
       } else {
         const err = await res.json();
-        alert(`Error al registrar abono: ${err.detail || 'Error'}`);
+        toast.error(`Error al registrar abono: ${err.detail || 'Error'}`);
       }
     } catch (err) {
       console.error('Error posting payment:', err);
-      alert('Error de conexión al registrar abono.');
+      toast.error('Error de conexión al registrar abono.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '20px' }}>
-      <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: '480px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="modal-backdrop">
+      <form onSubmit={handleSubmit} className="card modal-card" style={{ maxWidth: '480px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Registrar Abono a Venta #{sale.id}</h2>
           <button className="mobile-toggle-btn" onClick={onClose} aria-label="Cerrar modal">

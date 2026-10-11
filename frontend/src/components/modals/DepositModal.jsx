@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 
 export default function DepositModal({ isOpen, onClose }) {
-  const { fetchCash, fetchStats } = useApp();
+  const { fetchCash, fetchStats, toast } = useApp();
   const [depositForm, setDepositForm] = useState({ amount: '', notes: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -14,7 +14,7 @@ export default function DepositModal({ isOpen, onClose }) {
     e.preventDefault();
     const amountNum = parseFloat(depositForm.amount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Por favor ingresa un monto válido mayor a 0.');
+      toast.warning('Por favor ingresa un monto válido mayor a 0.');
       return;
     }
 
@@ -25,25 +25,26 @@ export default function DepositModal({ isOpen, onClose }) {
         notes: depositForm.notes || 'Aporte de capital / Fondo de caja'
       });
       if (res.ok) {
+        toast.success('Aporte de capital registrado exitosamente.');
         setDepositForm({ amount: '', notes: '' });
         onClose();
         fetchCash();
         fetchStats();
       } else {
         const data = await res.json();
-        alert(data.detail || 'Error al procesar el aporte.');
+        toast.error(data.detail || 'Error al procesar el aporte.');
       }
     } catch (err) {
       console.error('Error depositing cash:', err);
-      alert('Error de conexión al procesar el aporte.');
+      toast.error('Error de conexión al procesar el aporte.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '20px' }}>
-      <div className="card" style={{ maxWidth: '480px', width: '100%', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--border-color)', boxShadow: '0 24px 48px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="modal-backdrop">
+      <div className="card modal-card" style={{ maxWidth: '480px', border: '1px solid var(--border-color)', boxShadow: '0 24px 48px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--status-success)', padding: '8px', borderRadius: '8px' }}>

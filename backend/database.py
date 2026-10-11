@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel, create_engine, Session, select
-from sqlalchemy import text
+from sqlalchemy import text, event
 from decimal import Decimal
 from datetime import datetime
 import os
@@ -16,12 +16,40 @@ DATABASE_DIR = get_base_dir()
 DATABASE_FILE = os.path.join(DATABASE_DIR, "gestor_pocho.db")
 DATABASE_URL = f"sqlite:///{DATABASE_FILE}"
 
-# connect_args={"check_same_thread": False} is required for SQLite and FastAPI async endpoints
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Rutas persistentes de almacenamiento de imágenes
+UPLOADS_DIR = os.path.join(DATABASE_DIR, "uploads")
+PRODUCTS_DIR = os.path.join(UPLOADS_DIR, "products")
+CAPTURES_DIR = os.path.join(UPLOADS_DIR, "captures")
+BRANDING_DIR = os.path.join(UPLOADS_DIR, "branding")
+
+for folder in [UPLOADS_DIR, PRODUCTS_DIR, CAPTURES_DIR, BRANDING_DIR]:
+    os.makedirs(folder, exist_ok=True)
+
+# connect_args con timeout de 30s y check_same_thread=False
+engine = create_engine(
+    DATABASE_URL, 
+    connect_args={"check_same_thread": False, "timeout": 30}
+)
+
+@event.listens_for(engine, "connect")
+def configure_sqlite_connection(dbapi_connection, connection_record):
+    """Configura cada conexión para modo WAL, timeout y velocidad óptima."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode = WAL;")
+    cursor.execute("PRAGMA synchronous = NORMAL;")
+    cursor.execute("PRAGMA busy_timeout = 30000;")  # Espera hasta 30s si hay otra escritura en curso
+    cursor.execute("PRAGMA foreign_keys = ON;")
+    cursor.close()
 
 def run_migrations():
     """Verifica y añade de forma segura columnas a tablas SQLite existentes para evitar OperationalError."""
     with engine.connect() as conn:
+        # Activar modo WAL (Write-Ahead Logging) para alta concurrencia
+        try:
+            conn.execute(text("PRAGMA journal_mode=WAL;"))
+        except Exception:
+            pass
+
         # 1. Columnas en tabla product
         product_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(product)")).fetchall()]
         if product_cols:
@@ -48,6 +76,8 @@ def run_migrations():
                 conn.execute(text("UPDATE sale SET amount_paid = total_revenue WHERE payment_status = 'pagado'"))
             if "amount_pending" not in sale_cols:
                 conn.execute(text("ALTER TABLE sale ADD COLUMN amount_pending NUMERIC DEFAULT 0.00"))
+            if "cancel_reason" not in sale_cols:
+                conn.execute(text("ALTER TABLE sale ADD COLUMN cancel_reason TEXT"))
         
         # 3. Columnas en tabla cashmovement
         cash_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(cashmovement)")).fetchall()]
@@ -58,6 +88,53 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE cashmovement ADD COLUMN unit_cost NUMERIC"))
         
         conn.commit()
+
+def migrate_base64_to_disk():
+    """Migra imágenes Base64 heredadas en SQLite hacia archivos físicos en uploads y compacta la base."""
+    from utils.images import save_base64_to_disk
+    from models import Product, Sale, BusinessConfig
+    
+    has_changes = False
+    with Session(engine) as session:
+        # 1. Migrar productos
+        products = session.exec(select(Product)).all()
+        for prod in products:
+            if prod.image_base64 and not prod.image_base64.startswith("/uploads/"):
+                saved_path = save_base64_to_disk(prod.image_base64, PRODUCTS_DIR, prefix=f"prod_{prod.id}")
+                if saved_path:
+                    prod.image_base64 = saved_path
+                    session.add(prod)
+                    has_changes = True
+
+        # 2. Migrar capturas de ventas
+        sales = session.exec(select(Sale)).all()
+        for sale in sales:
+            if sale.payment_capture_base64 and not sale.payment_capture_base64.startswith("/uploads/"):
+                saved_path = save_base64_to_disk(sale.payment_capture_base64, CAPTURES_DIR, prefix=f"sale_{sale.id}", max_size=(1200, 1200))
+                if saved_path:
+                    sale.payment_capture_base64 = saved_path
+                    session.add(sale)
+                    has_changes = True
+
+        # 3. Migrar logo del negocio
+        config = session.get(BusinessConfig, 1)
+        if config and config.logo_base64 and not config.logo_base64.startswith("/uploads/"):
+            saved_path = save_base64_to_disk(config.logo_base64, BRANDING_DIR, prefix="logo")
+            if saved_path:
+                config.logo_base64 = saved_path
+                session.add(config)
+                has_changes = True
+
+        if has_changes:
+            session.commit()
+            print("[INFO] Migración de imágenes Base64 a archivos en disco completada exitosamente.")
+
+    if has_changes:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("VACUUM;"))
+        except Exception:
+            pass
 
 def create_db_and_tables():
     from models import BusinessConfig, Category, Subcategory
@@ -121,6 +198,17 @@ def create_db_and_tables():
                     ))
             session.commit()
 
+    # Ejecutar migración de imágenes si existen Base64 heredados
+    migrate_base64_to_disk()
+
 def get_session():
     with Session(engine) as session:
         yield session
+
+def checkpoint_wal():
+    """Vuelca y compacta los registros de la bitacora WAL hacia el archivo principal de SQLite."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE);"))
+    except Exception:
+        pass

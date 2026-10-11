@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { PlusCircle, Package, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
+import { getImageUrl } from '../../utils/imageUrl';
 
 export default function AddStockModal({ isOpen, product, onClose }) {
-  const { config, fetchProducts, fetchCash, fetchStats } = useApp();
+  const { config, fetchProducts, fetchCash, fetchStats, toast } = useApp();
   const [addStockForm, setAddStockForm] = useState({
     new_total_stock: '',
     unit_cost: '',
@@ -34,7 +35,7 @@ export default function AddStockModal({ isOpen, product, onClose }) {
     e.preventDefault();
     const newTotal = parseInt(addStockForm.new_total_stock);
     if (isNaN(newTotal) || newTotal < 0) {
-      alert('El stock total no puede ser un número negativo.');
+      toast.warning('El stock total no puede ser un número negativo.');
       return;
     }
 
@@ -48,17 +49,18 @@ export default function AddStockModal({ isOpen, product, onClose }) {
       });
 
       if (res.ok) {
+        toast.success('Stock actualizado correctamente');
         onClose();
         fetchProducts();
         fetchCash();
         fetchStats();
       } else {
         const errData = await res.json().catch(() => ({}));
-        alert(errData.detail || 'Error al actualizar el stock');
+        toast.error(errData.detail || 'Error al actualizar el stock');
       }
     } catch (err) {
       console.error('Error updating stock:', err);
-      alert('Error de conexión al actualizar stock');
+      toast.error('Error de conexión al actualizar stock');
     } finally {
       setIsSubmitting(false);
     }
@@ -71,8 +73,8 @@ export default function AddStockModal({ isOpen, product, onClose }) {
   const totalAmount = Math.abs(diff) * unitC;
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-      <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: '520px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="modal-backdrop">
+      <form onSubmit={handleSubmit} className="card modal-card" style={{ maxWidth: '520px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -97,7 +99,7 @@ export default function AddStockModal({ isOpen, product, onClose }) {
         {/* Product Brief */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
           {product.image_base64 ? (
-            <img src={product.image_base64} alt={product.name} style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '8px' }} />
+            <img src={getImageUrl(product.image_base64)} alt={product.name} style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '8px' }} />
           ) : (
             <div style={{ width: '48px', height: '48px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Package size={22} color="var(--text-muted)" />

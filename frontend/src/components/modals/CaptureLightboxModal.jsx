@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ZoomIn, ZoomOut } from 'lucide-react';
+import { getImageUrl } from '../../utils/imageUrl';
 
 export default function CaptureLightboxModal({ selectedCapture, onClose }) {
   const [zoomScale, setZoomScale] = useState(1);
@@ -11,8 +12,8 @@ export default function CaptureLightboxModal({ selectedCapture, onClose }) {
   if (!selectedCapture) return null;
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '20px' }}>
-      <div className="card" style={{ width: '100%', maxWidth: '850px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px' }}>
+    <div className="modal-backdrop">
+      <div className="card modal-card" style={{ maxWidth: '850px', display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
           <h3 style={{ margin: 0 }}>Comprobante de Pago</h3>
           
@@ -70,7 +71,7 @@ export default function CaptureLightboxModal({ selectedCapture, onClose }) {
             justifyContent: 'center'
           }}>
             <img 
-              src={selectedCapture} 
+              src={getImageUrl(selectedCapture)} 
               alt="Comprobante de Pago" 
               style={{ maxWidth: '90%', maxHeight: '50vh', borderRadius: '4px', display: 'block', objectFit: 'contain' }} 
             />

@@ -1,5 +1,4 @@
 # Scripts privados de empaquetado y binarios
-package.bat
 *.exe
 *.spec
 build/
@@ -9,8 +8,12 @@ backend/build/
 
 # Base de datos y datos locales
 *.db
+*.db-wal
+*.db-shm
 gestor_pocho.db
 backend/gestor_pocho.db
+uploads/
+backend/uploads/
 
 # Entornos virtuales y Python
 venv/

@@ -9,7 +9,28 @@ from fastapi import Response, HTTPException
 from fpdf import FPDF
 from PIL import Image
 
+from database import DATABASE_DIR
 from models import BusinessConfig, Sale, CashMovement
+
+def resolve_image_path(img_ref: Optional[str], temp_prefix: str = "temp") -> tuple[Optional[str], bool]:
+    """Retorna (ruta_archivo, es_temporal). Soporta archivos en uploads y Base64 heredado."""
+    if not img_ref or not isinstance(img_ref, str):
+        return None, False
+    if img_ref.startswith("/uploads/"):
+        rel_path = img_ref.lstrip("/\\")
+        disk_path = os.path.join(DATABASE_DIR, rel_path)
+        if os.path.exists(disk_path):
+            return disk_path, False
+    try:
+        header_str, base64_data = img_ref.split(",", 1) if "," in img_ref else ("", img_ref)
+        img_data = base64.b64decode(base64_data)
+        image = Image.open(io.BytesIO(img_data))
+        temp_dir = tempfile.gettempdir()
+        temp_path = os.path.join(temp_dir, f"{temp_prefix}.png")
+        image.save(temp_path)
+        return temp_path, True
+    except Exception:
+        return None, False
 
 def generate_invoice_pdf_response(sale: Sale, config: Optional[BusinessConfig]) -> Response:
     if not config:
@@ -24,17 +45,9 @@ def generate_invoice_pdf_response(sale: Sale, config: Optional[BusinessConfig]) 
     pdf.rect(0, 0, 210, 40, "F")
     
     # Check for custom logo
-    logo_path = None
-    if config.logo_base64:
+    logo_path, is_temp_logo = resolve_image_path(config.logo_base64, f"temp_logo_{sale.id}")
+    if logo_path:
         try:
-            header_str, base64_data = config.logo_base64.split(",") if "," in config.logo_base64 else ("", config.logo_base64)
-            img_data = base64.b64decode(base64_data)
-            image = Image.open(io.BytesIO(img_data))
-            
-            temp_dir = tempfile.gettempdir()
-            logo_path = os.path.join(temp_dir, f"temp_logo_{sale.id}.png")
-            image.save(logo_path)
-            
             pdf.image(logo_path, x=10, y=8, w=24, h=24)
         except Exception:
             logo_path = None
@@ -54,7 +67,21 @@ def generate_invoice_pdf_response(sale: Sale, config: Optional[BusinessConfig]) 
     pdf.set_xy(140, 24)
     pdf.cell(60, 10, f"Fecha: {sale.date.strftime('%d/%m/%Y %H:%M')}", ln=True, align="R")
     
-    pdf.ln(20)
+    pdf.ln(10)
+    
+    # Anulada Banner
+    if sale.payment_status == "anulado":
+        pdf.set_fill_color(254, 226, 226)
+        pdf.rect(10, 42, 190, 8, "F")
+        pdf.set_xy(10, 42)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(185, 28, 28)
+        reason_txt = f" (Motivo: {sale.cancel_reason})" if sale.cancel_reason else ""
+        pdf.cell(190, 8, f"*** VENTA ANULADA / DEVUELTA{reason_txt} ***", align="C", ln=True)
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(4)
+    else:
+        pdf.ln(10)
     
     # Client info
     pdf.set_font("Helvetica", "B", 11)
@@ -115,7 +142,7 @@ def generate_invoice_pdf_response(sale: Sale, config: Optional[BusinessConfig]) 
         pdf.set_text_color(0, 0, 0)
         
     # Embed capture screenshot if available
-    capture_path = None
+    capture_path, is_temp_capture = None, False
     if sale.payment_capture_base64:
         try:
             pdf.ln(8)
@@ -123,24 +150,17 @@ def generate_invoice_pdf_response(sale: Sale, config: Optional[BusinessConfig]) 
             pdf.cell(100, 6, "Comprobante de Pago Adjunto:", ln=True)
             pdf.ln(2)
             
-            header_str, base64_data = sale.payment_capture_base64.split(",") if "," in sale.payment_capture_base64 else ("", sale.payment_capture_base64)
-            capture_data = base64.b64decode(base64_data)
-            cap_img = Image.open(io.BytesIO(capture_data))
-            
-            temp_dir = tempfile.gettempdir()
-            capture_path = os.path.join(temp_dir, f"temp_capture_{sale.id}.png")
-            cap_img.thumbnail((300, 300))
-            cap_img.save(capture_path)
-            
-            pdf.image(capture_path, w=70)
+            capture_path, is_temp_capture = resolve_image_path(sale.payment_capture_base64, f"temp_cap_{sale.id}")
+            if capture_path:
+                pdf.image(capture_path, w=70)
         except Exception as e:
             pdf.cell(100, 6, f"[Error al cargar comprobante: {str(e)}]", ln=True)
             
-    # Clean up temp files
+    # Clean up temp files only
     try:
-        if logo_path and os.path.exists(logo_path):
+        if is_temp_logo and logo_path and os.path.exists(logo_path):
             os.remove(logo_path)
-        if capture_path and os.path.exists(capture_path):
+        if is_temp_capture and capture_path and os.path.exists(capture_path):
             os.remove(capture_path)
     except Exception:
         pass
@@ -167,15 +187,9 @@ def generate_financial_report_pdf_response(
     pdf.set_fill_color(240, 240, 245)
     pdf.rect(0, 0, 210, 40, "F")
     
-    logo_path = None
-    if config.logo_base64:
+    logo_path, is_temp_logo = resolve_image_path(config.logo_base64, "temp_logo_report")
+    if logo_path:
         try:
-            header_str, base64_data = config.logo_base64.split(",") if "," in config.logo_base64 else ("", config.logo_base64)
-            img_data = base64.b64decode(base64_data)
-            image = Image.open(io.BytesIO(img_data))
-            temp_dir = tempfile.gettempdir()
-            logo_path = os.path.join(temp_dir, f"temp_logo_report.png")
-            image.save(logo_path)
             pdf.image(logo_path, x=10, y=8, w=24, h=24)
         except Exception:
             logo_path = None
@@ -271,7 +285,8 @@ def generate_financial_report_pdf_response(
         "ingreso_venta": "Cobro Venta",
         "abono_fiao": "Abono a Fiao",
         "retiro_dueno": "Retiro Dueno",
-        "ingreso_capital": "Aporte Capital"
+        "ingreso_capital": "Aporte Capital",
+        "devolucion_venta": "Devolución Venta"
     }
 
     pdf.set_font("Helvetica", size=8)
@@ -291,7 +306,7 @@ def generate_financial_report_pdf_response(
         pdf.ln()
         
     try:
-        if logo_path and os.path.exists(logo_path):
+        if is_temp_logo and logo_path and os.path.exists(logo_path):
             os.remove(logo_path)
     except Exception:
         pass

@@ -28,13 +28,13 @@ export default function DashboardView({ onOpenWithdraw, onOpenDeposit, onNavigat
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
+      <div className="view-header">
+        <div className="view-header-title">
           <h1>Panel Financiero</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Métricas, tasas e inversión en tiempo real para tu negocio</p>
         </div>
         
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="view-header-actions">
           <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-card)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
             {[7, 30, 90].map(days => (
               <button 

@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from database import get_session
@@ -23,8 +24,15 @@ def get_cash_balance(session: Session = Depends(get_session)):
     }
 
 @router.get("/movements")
-def get_cash_movements(limit: int = 500, session: Session = Depends(get_session)):
-    movements = session.exec(select(CashMovement).order_by(CashMovement.date.desc()).limit(limit)).all()
+def get_cash_movements(
+    limit: Optional[int] = Query(default=None, ge=1, description="Límite de movimientos"),
+    offset: int = Query(default=0, ge=0, description="Desplazamiento para paginación"),
+    session: Session = Depends(get_session)
+):
+    query = select(CashMovement).order_by(CashMovement.date.desc())
+    if limit is not None:
+        query = query.offset(offset).limit(limit)
+    movements = session.exec(query).all()
     return [
         {
             "id": m.id,

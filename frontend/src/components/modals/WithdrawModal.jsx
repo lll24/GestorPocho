@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 
 export default function WithdrawModal({ isOpen, onClose }) {
-  const { config, cashBalance, fetchCash, fetchStats } = useApp();
+  const { config, cashBalance, fetchCash, fetchStats, toast } = useApp();
   const [withdrawForm, setWithdrawForm] = useState({ amount: '', notes: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -17,11 +17,11 @@ export default function WithdrawModal({ isOpen, onClose }) {
     e.preventDefault();
     const amountNum = parseFloat(withdrawForm.amount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Por favor ingresa un monto válido mayor a 0.');
+      toast.warning('Por favor ingresa un monto válido mayor a 0.');
       return;
     }
     if (amountNum > currentCash) {
-      alert(`No puedes retirar más de lo que hay en caja ($${currentCash.toFixed(2)}).`);
+      toast.warning(`No puedes retirar más de lo que hay en caja ($${currentCash.toFixed(2)}).`);
       return;
     }
 
@@ -32,17 +32,18 @@ export default function WithdrawModal({ isOpen, onClose }) {
         notes: withdrawForm.notes || 'Retiro de fondos por el dueño'
       });
       if (res.ok) {
+        toast.success('Retiro de caja registrado exitosamente.');
         setWithdrawForm({ amount: '', notes: '' });
         onClose();
         fetchCash();
         fetchStats();
       } else {
         const data = await res.json();
-        alert(data.detail || 'Error al procesar el retiro.');
+        toast.error(data.detail || 'Error al procesar el retiro.');
       }
     } catch (err) {
       console.error('Error withdrawing cash:', err);
-      alert('Error de conexión al procesar el retiro.');
+      toast.error('Error de conexión al procesar el retiro.');
     } finally {
       setIsSubmitting(false);
     }
@@ -51,8 +52,8 @@ export default function WithdrawModal({ isOpen, onClose }) {
   const val = parseFloat(withdrawForm.amount) || 0;
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: '20px' }}>
-      <div className="card" style={{ maxWidth: '480px', width: '100%', maxHeight: '90vh', overflowY: 'auto', border: '1px solid var(--border-color)', boxShadow: '0 24px 48px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="modal-backdrop">
+      <div className="card modal-card" style={{ maxWidth: '480px', border: '1px solid var(--border-color)', boxShadow: '0 24px 48px rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--status-warning)', padding: '8px', borderRadius: '8px' }}>

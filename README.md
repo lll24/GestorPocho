@@ -10,18 +10,22 @@
 
 ### Principales Funcionalidades:
 - **💱 Bimonetario en Tiempo Real**: Configuración de tasa de cambio del dólar (Bs./$), mostrando precios, totales y facturas en ambas monedas de forma simultánea.
+- **📱 Experiencia 100% Responsiva para Móviles**: Diseñado y optimizado para cobrar y gestionar desde teléfonos o tablets con barra flotante de cobro rápido, catálogo en 2 columnas y menú adaptativo.
 - **📦 Control Real de Costos e Inventario**: Desglose de costo base + IVA (%) + flete de importación/envío para fijar márgenes de ganancia reales.
+- **🔄 Anulación de Ventas y Reintegros**: Cancelación controlada de ventas con motivo registrado, reposición automática de stock y ajuste del arqueo de caja.
+- **⚡ Alta Concurrencia (Modo SQLite WAL)**: Lectura y escritura simultánea rápida y sin bloqueos de base de datos entre la computadora principal y los teléfonos conectados por red local.
+- **🖼️ Almacenamiento Eficiente de Imágenes**: Compresión automática a formato WebP guardado en disco (`uploads/`), manteniendo la base de datos ligera y ágil.
 - **🧾 Facturación y Comprobantes en PDF**: Generación instantánea de facturas con el logo del negocio y la captura del comprobante de pago (Pago Móvil, Binance, Transferencia) adjunta en el mismo documento.
 - **🔒 Inmutabilidad Histórica**: Cada venta congela la tasa de cambio, el costo unitario y el precio de venta de ese momento exacto, protegiendo las estadísticas históricas de fluctuaciones futuras.
 - **🎨 Marca Blanca**: Personalización del nombre comercial, logo, colores de interfaz mediante variables CSS y alternancia entre modo Claro y Oscuro.
-- **💾 Copias de Seguridad**: Respaldo y restauración de la base de datos SQLite con un solo clic.
+- **💾 Copias de Seguridad y Mantenimiento**: Respaldo y restauración de la base de datos SQLite con un solo clic, y opción para reiniciar historial de prueba.
 
 ---
 
 ## 🛠️ Stack Tecnológico
 
-- **Backend**: Python 3.12, FastAPI, SQLModel (SQLAlchemy), SQLite, FPDF2 (PDFs), Pillow (compresión de imágenes), Uvicorn.
-- **Frontend**: React 19, Vite, Lucide React (iconos), Vanilla CSS responsivo.
+- **Backend**: Python 3.12, FastAPI, SQLModel (SQLAlchemy), SQLite (WAL Mode), FPDF2 (PDFs), Pillow (compresión WebP), Uvicorn.
+- **Frontend**: React 19, Vite, Lucide React (iconos), Sistema de Toast Notifications nativo, Vanilla CSS responsivo.
 - **Despliegue / Producción**: Docker (multi-stage build), Scripts de arranque local.
 
 ---
@@ -107,7 +111,16 @@ Si no quieres tener dos terminales abiertas y prefieres levantar todo con un sol
 2. Haz doble clic en **`start.bat`**.
 3. Levantará el servidor en el puerto `8000` y abrirá automáticamente tu navegador en [http://localhost:8000](http://localhost:8000), sirviendo el frontend compilado y la API juntos.
 
-### Opción B: Contenedor Docker
+### Opción B: Ejecutable Portable (.exe) para Pruebas Rápidas
+Si quieres que otra persona o cliente pruebe el sistema en Windows sin instalar Node ni Python:
+1. Puedes compilar el ejecutable ejecutando el script:
+   ```bash
+   package.bat
+   ```
+2. Esto creará **`GestorPocho.exe`**, que integra FastAPI, SQLite y la aplicación compilada de React en un solo ejecutable ligero.
+3. Para compartirlo, basta con enviar el archivo ejecutable (junto con la carpeta `uploads/` si ya existen fotos cargadas).
+
+### Opción C: Contenedor Docker
 ```bash
 # Construir la imagen
 docker build -t gestor-pocho .
@@ -123,19 +136,24 @@ docker run -d -p 8000:8000 -v $(pwd)/backend:/app/backend --name gestor-pocho ge
 ```text
 GestorPocho/
 ├── backend/
-│   ├── database.py       # Configuración de SQLite y motor SQLModel (persistente)
-│   ├── models.py         # Tablas de DB (BusinessConfig, Product, Sale, SaleItem)
-│   ├── main.py           # Endpoints de API, facturación PDF, KPIs y servidor estático
-│   ├── requirements.txt  # Librerías de Python requeridas
-│   └── gestor_pocho.db   # Base de datos SQLite local
+│   ├── routers/          # Rutas modulares (products, sales, cash, customers, stats, etc.)
+│   ├── utils/            # Generación de facturas PDF (fpdf2) y compresión WebP
+│   ├── database.py       # Conexión SQLite con modo WAL y SQLModel
+│   ├── models.py         # Modelos de base de datos relacional
+│   ├── schemas.py        # Validaciones de entrada/salida (Pydantic)
+│   ├── main.py           # Servidor FastAPI principal y montaje de archivos
+│   └── requirements.txt  # Dependencias de Python
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx       # Componente principal de la aplicación
-│   │   ├── index.css     # Sistema de diseño y variables temáticas
-│   │   └── main.jsx      # Punto de entrada de React
-│   ├── package.json      # Dependencias de npm
-│   └── vite.config.js    # Configuración de Vite
-├── Dockerfile            # Construcción multi-stage para producción
-├── start.bat             # Script de arranque rápido para Windows
-└── README.md             # Documentación general del proyecto
+│   │   ├── components/   # Modales (ProductModal, VoidSaleModal, etc.) y Layout
+│   │   ├── context/      # Estados globales (AppContext, ToastContext)
+│   │   ├── views/        # Pantallas (POS, Inventario, Historial, Clientes, Dashboard, Config)
+│   │   ├── index.css     # Tokens de diseño, temas claro/oscuro y reglas responsive
+│   │   └── App.jsx       # Enrutador y vista principal
+│   ├── package.json      # Dependencias de React y Vite
+│   └── vite.config.js    # Configuración de proxy y build de Vite
+├── uploads/              # Carpeta en disco para imágenes y comprobantes (WebP)
+├── package.bat           # Script automático para compilar a .exe portable
+├── start.bat             # Script de arranque rápido con un solo clic
+└── README.md             # Documentación del proyecto
 ```

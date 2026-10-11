@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 
 export default function CategoryModal({ isOpen, onClose }) {
-  const { categories, fetchCategories } = useApp();
+  const { categories, fetchCategories, toast } = useApp();
   const [newCategoryForm, setNewCategoryForm] = useState({ name: '', is_for_sale: true });
   const [newSubcategoryForm, setNewSubcategoryForm] = useState({ category_id: '', name: '' });
   const [isSubmittingCat, setIsSubmittingCat] = useState(false);
@@ -20,14 +20,16 @@ export default function CategoryModal({ isOpen, onClose }) {
     try {
       const res = await api.createCategory(newCategoryForm);
       if (res.ok) {
+        toast.success('Categoría creada con éxito');
         setNewCategoryForm({ name: '', is_for_sale: true });
         fetchCategories();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.detail || 'Error al crear la categoría.');
+        toast.error(err.detail || 'Error al crear la categoría.');
       }
     } catch (err) {
       console.error('Error saving category:', err);
+      toast.error('Error de conexión al crear categoría.');
     } finally {
       setIsSubmittingCat(false);
     }
@@ -41,14 +43,16 @@ export default function CategoryModal({ isOpen, onClose }) {
     try {
       const res = await api.createSubcategory(newSubcategoryForm.category_id, { name: newSubcategoryForm.name });
       if (res.ok) {
+        toast.success('Subcategoría creada con éxito');
         setNewSubcategoryForm({ ...newSubcategoryForm, name: '' });
         fetchCategories();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.detail || 'Error al crear la subcategoría.');
+        toast.error(err.detail || 'Error al crear la subcategoría.');
       }
     } catch (err) {
       console.error('Error saving subcategory:', err);
+      toast.error('Error de conexión al crear subcategoría.');
     } finally {
       setIsSubmittingSub(false);
     }
@@ -58,9 +62,16 @@ export default function CategoryModal({ isOpen, onClose }) {
     if (!confirm('¿Eliminar esta categoría y sus subcategorías?')) return;
     try {
       const res = await api.deleteCategory(catId);
-      if (res.ok) fetchCategories();
+      if (res.ok) {
+        toast.success('Categoría eliminada');
+        fetchCategories();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || 'Error al eliminar categoría');
+      }
     } catch (err) {
       console.error('Error deleting category:', err);
+      toast.error('Error de conexión al eliminar categoría');
     }
   };
 
@@ -68,15 +79,22 @@ export default function CategoryModal({ isOpen, onClose }) {
     if (!confirm('¿Eliminar esta subcategoría?')) return;
     try {
       const res = await api.deleteSubcategory(subId);
-      if (res.ok) fetchCategories();
+      if (res.ok) {
+        toast.success('Subcategoría eliminada');
+        fetchCategories();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || 'Error al eliminar subcategoría');
+      }
     } catch (err) {
       console.error('Error deleting subcategory:', err);
+      toast.error('Error de conexión al eliminar subcategoría');
     }
   };
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-      <div className="card" style={{ width: '100%', maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div className="modal-backdrop">
+      <div className="card modal-card" style={{ maxWidth: '700px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Layers size={20} />

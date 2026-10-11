@@ -4,10 +4,10 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from database import get_session
+from database import get_session, PRODUCTS_DIR, UPLOADS_DIR
 from models import Product, Category, Subcategory, CashMovement
 from schemas import ProductCreateUpdate, StockAddRequest
-from utils.images import optimize_base64_image
+from utils.images import save_base64_to_disk, delete_disk_file
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -19,7 +19,13 @@ def get_products(session: Session = Depends(get_session)):
 def create_product(product_data: ProductCreateUpdate, session: Session = Depends(get_session)):
     product_dict = product_data.model_dump()
     if product_dict.get("image_base64"):
-        product_dict["image_base64"] = optimize_base64_image(product_dict["image_base64"], max_size=(600, 600), quality=75)
+        product_dict["image_base64"] = save_base64_to_disk(
+            product_dict["image_base64"],
+            PRODUCTS_DIR,
+            prefix="prod",
+            max_size=(800, 800),
+            quality=80
+        )
     
     # Auto fill category and subcategory names if IDs provided
     if product_dict.get("category_id"):
@@ -68,8 +74,21 @@ def update_product(product_id: int, product_data: ProductCreateUpdate, session: 
     old_stock = product.stock
 
     data = product_data.model_dump()
-    if data.get("image_base64"):
-        data["image_base64"] = optimize_base64_image(data["image_base64"], max_size=(600, 600), quality=75)
+    if "image_base64" in data:
+        new_img = data.get("image_base64")
+        if new_img != product.image_base64:
+            if product.image_base64 and product.image_base64.startswith("/uploads/"):
+                delete_disk_file(product.image_base64, UPLOADS_DIR)
+            if new_img:
+                data["image_base64"] = save_base64_to_disk(
+                    new_img,
+                    PRODUCTS_DIR,
+                    prefix="prod",
+                    max_size=(800, 800),
+                    quality=80
+                )
+            else:
+                data["image_base64"] = None
         
     if data.get("category_id"):
         cat = session.get(Category, data["category_id"])
@@ -309,6 +328,8 @@ def delete_product(product_id: int, session: Session = Depends(get_session)):
     product = session.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    if product.image_base64 and product.image_base64.startswith("/uploads/"):
+        delete_disk_file(product.image_base64, UPLOADS_DIR)
     session.delete(product)
     session.commit()
     return {"status": "success", "message": "Product deleted"}

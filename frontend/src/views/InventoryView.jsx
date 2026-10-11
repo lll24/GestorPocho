@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api } from '../services/api';
+import { getImageUrl } from '../utils/imageUrl';
 
 export default function InventoryView({
   onOpenAddProduct,
@@ -47,15 +48,15 @@ export default function InventoryView({
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
+      <div className="view-header">
+        <div className="view-header-title">
           <h1>Gestión de Inventario</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Control de mercancía a la venta e insumos de gestión operativa</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div className="view-header-actions">
           <button className="btn btn-secondary" onClick={onOpenCategoryModal}>
             <Layers size={18} />
-            Gestionar Categorías
+            Categorías
           </button>
           <button className="btn btn-primary" onClick={onOpenAddProduct}>
             <Plus size={18} />
@@ -65,7 +66,7 @@ export default function InventoryView({
       </div>
 
       {/* Category Filter Tabs */}
-      <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px' }}>
+      <div className="filter-tabs-scroll">
         <button 
           className={`btn ${inventoryCategoryFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
           style={{ padding: '8px 16px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
@@ -100,11 +101,11 @@ export default function InventoryView({
         const activeCat = categories.find(c => c.name === inventoryCategoryFilter);
         if (activeCat && activeCat.subcategories.length > 0) {
           return (
-            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginRight: '4px' }}>Subcategoría:</span>
+            <div className="filter-tabs-scroll" style={{ alignItems: 'center', marginBottom: '16px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginRight: '4px', whiteSpace: 'nowrap' }}>Subcategoría:</span>
               <button 
                 className={`badge ${inventorySubcategoryFilter === 'all' ? 'badge-success' : 'badge-warning'}`}
-                style={{ padding: '6px 12px', cursor: 'pointer', border: 'none' }}
+                style={{ padding: '6px 12px', cursor: 'pointer', border: 'none', whiteSpace: 'nowrap' }}
                 onClick={() => setInventorySubcategoryFilter('all')}
               >
                 Todas
@@ -113,7 +114,7 @@ export default function InventoryView({
                 <button 
                   key={sub.id}
                   className={`badge ${inventorySubcategoryFilter === sub.name ? 'badge-success' : 'badge-warning'}`}
-                  style={{ padding: '6px 12px', cursor: 'pointer', border: 'none', opacity: inventorySubcategoryFilter === sub.name ? 1 : 0.6 }}
+                  style={{ padding: '6px 12px', cursor: 'pointer', border: 'none', opacity: inventorySubcategoryFilter === sub.name ? 1 : 0.6, whiteSpace: 'nowrap' }}
                   onClick={() => setInventorySubcategoryFilter(sub.name)}
                 >
                   {sub.name}
@@ -126,9 +127,9 @@ export default function InventoryView({
       })()}
 
       {/* Search Bar */}
-      <div className="card" style={{ padding: '16px', marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
+      <div className="card" style={{ padding: '14px', marginBottom: '20px', display: 'flex', gap: '12px', alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: 1 }}>
-          <Search size={18} style={{ position: 'absolute', left: '16px', top: '14px', color: 'var(--text-muted)' }} />
+          <Search size={18} style={{ position: 'absolute', left: '16px', top: '13px', color: 'var(--text-muted)' }} />
           <input 
             type="text" 
             placeholder="Buscar productos por nombre..." 
@@ -138,14 +139,14 @@ export default function InventoryView({
             style={{ paddingLeft: '44px' }}
           />
         </div>
-        <button className="btn btn-secondary" onClick={fetchProducts} title="Actualizar">
+        <button className="btn btn-secondary" onClick={fetchProducts} title="Actualizar" style={{ padding: '10px 14px' }}>
           <RefreshCw size={18} />
         </button>
       </div>
 
       {/* Inventory Grid */}
       {filteredProducts.length > 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
+        <div className="inventory-grid">
           {filteredProducts.map(product => {
             const costBase = parseFloat(product.cost_base) || 0;
             const costIva = parseFloat(product.cost_iva) || 0;
@@ -162,7 +163,7 @@ export default function InventoryView({
               <div key={product.id} className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%', border: isManagement ? '1px dashed rgba(245, 158, 11, 0.4)' : '1px solid var(--border-color)' }}>
                 {product.image_base64 ? (
                   <img 
-                    src={product.image_base64} 
+                    src={getImageUrl(product.image_base64)} 
                     alt={product.name} 
                     style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '10px', marginBottom: '16px' }} 
                   />

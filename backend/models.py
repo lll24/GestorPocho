@@ -93,6 +93,7 @@ class Sale(SQLModel, table=True):
     amount_paid: Decimal = Field(default=Decimal("0.00"))
     amount_pending: Decimal = Field(default=Decimal("0.00"))
     dollar_rate: Decimal = Field(default=Decimal("45.00"))  # The dollar rate saved at time of sale
+    cancel_reason: Optional[str] = None
 
     items: List[SaleItem] = Relationship(back_populates="sale")
     customer: Optional[Customer] = Relationship(back_populates="sales")

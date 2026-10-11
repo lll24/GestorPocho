@@ -61,7 +61,13 @@ export const api = {
   deleteCustomer: (id) => fetch(`${API_URL}/api/customers/${id}`, { method: 'DELETE' }),
 
   // Sales
-  getSales: () => fetch(`${API_URL}/api/sales`).then(r => r.json()),
+  getSales: (limit = null, offset = 0) => {
+    const params = new URLSearchParams();
+    if (limit !== null) params.append('limit', limit);
+    if (offset > 0) params.append('offset', offset);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return fetch(`${API_URL}/api/sales${qs}`).then(r => r.json());
+  },
   getSaleCapture: (saleId) => fetch(`${API_URL}/api/sales/${saleId}/capture`).then(r => r.json()),
   createSale: (data) => fetch(`${API_URL}/api/sales`, {
     method: 'POST',
@@ -73,13 +79,24 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   }),
+  voidSale: (saleId, data = {}) => fetch(`${API_URL}/api/sales/${saleId}/void`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  }),
 
   // Stats
   getStats: (days = 30) => fetch(`${API_URL}/api/stats?days=${days}`).then(r => r.json()),
 
   // Cash
   getCashBalance: () => fetch(`${API_URL}/api/cash/balance`).then(r => r.json()),
-  getCashMovements: (limit = 500) => fetch(`${API_URL}/api/cash/movements?limit=${limit}`).then(r => r.json()),
+  getCashMovements: (limit = null, offset = 0) => {
+    const params = new URLSearchParams();
+    if (limit !== null) params.append('limit', limit);
+    if (offset > 0) params.append('offset', offset);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return fetch(`${API_URL}/api/cash/movements${qs}`).then(r => r.json());
+  },
   withdrawCash: (data) => fetch(`${API_URL}/api/cash/withdraw`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

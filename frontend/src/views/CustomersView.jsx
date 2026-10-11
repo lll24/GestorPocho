@@ -51,15 +51,17 @@ export default function CustomersView({
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
+      <div className="view-header">
+        <div className="view-header-title">
           <h1>Gestión de Clientes & Fiao</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Directorio de clientes, historial de compras y cuentas por cobrar</p>
         </div>
-        <button className="btn btn-primary" onClick={onOpenAddCustomer}>
-          <Plus size={18} />
-          Nuevo Cliente
-        </button>
+        <div className="view-header-actions">
+          <button className="btn btn-primary" onClick={onOpenAddCustomer}>
+            <Plus size={18} />
+            Nuevo Cliente
+          </button>
+        </div>
       </div>
 
       {/* Quick Metrics */}

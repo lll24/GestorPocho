@@ -10,9 +10,10 @@ import {
 import { useApp } from '../context/AppContext';
 import { api, API_URL } from '../services/api';
 import { handleImageChange } from '../utils/imageCompressor';
+import { getImageUrl } from '../utils/imageUrl';
 
 export default function PosView({ onOpenAddCustomer }) {
-  const { config, products, categories, customers, fetchProducts, fetchSales, fetchCustomers, fetchStats, fetchCash } = useApp();
+  const { config, products, categories, customers, fetchProducts, fetchSales, fetchCustomers, fetchStats, fetchCash, toast } = useApp();
 
   // Filter states
   const [posCategoryFilter, setPosCategoryFilter] = useState('all');
@@ -49,7 +50,7 @@ export default function PosView({ onOpenAddCustomer }) {
     const existing = cart.find(item => item.id === product.id);
     if (existing) {
       if (existing.quantity >= product.stock) {
-        alert(`Solo quedan ${product.stock} unidades en stock.`);
+        toast.warning(`Solo quedan ${product.stock} unidades en stock.`);
         return;
       }
       setCart(cart.map(item => 
@@ -67,7 +68,7 @@ export default function PosView({ onOpenAddCustomer }) {
       return;
     }
     if (prod && qty > prod.stock) {
-      alert(`Solo quedan ${prod.stock} unidades disponibles.`);
+      toast.warning(`Solo quedan ${prod.stock} unidades disponibles.`);
       return;
     }
     setCart(cart.map(item => item.id === productId ? { ...item, quantity: qty } : item));
@@ -82,12 +83,12 @@ export default function PosView({ onOpenAddCustomer }) {
 
   const submitSale = async () => {
     if (cart.length === 0) {
-      alert('Agrega al menos un producto al carrito.');
+      toast.warning('Agrega al menos un producto al carrito.');
       return;
     }
 
     if ((paymentStatus === 'fiao' || paymentStatus === 'parcial') && !selectedCustomerId && !clientName.trim()) {
-      alert('Para vender fiado o con abono parcial, debes seleccionar o ingresar el nombre del cliente.');
+      toast.warning('Para vender fiado o con abono parcial, debes seleccionar o ingresar el nombre del cliente.');
       return;
     }
 
@@ -108,7 +109,7 @@ export default function PosView({ onOpenAddCustomer }) {
       const res = await api.createSale(salePayload);
       if (res.ok) {
         const finishedSale = await res.json();
-        alert('Venta procesada con éxito.');
+        toast.success('¡Venta procesada con éxito!');
         setCart([]);
         setClientName('');
         setSelectedCustomerId('');
@@ -129,11 +130,11 @@ export default function PosView({ onOpenAddCustomer }) {
         window.open(`${API_URL}/api/sales/${finishedSale.id}/invoice`, '_blank');
       } else {
         const errData = await res.json();
-        alert(`Error al procesar la venta: ${errData.detail || 'Error desconocido'}`);
+        toast.error(`Error al procesar la venta: ${errData.detail || 'Error desconocido'}`);
       }
     } catch (err) {
       console.error('Error posting sale:', err);
-      alert('Error en la conexión con el servidor.');
+      toast.error('Error en la conexión con el servidor.');
     } finally {
       setIsSubmittingSale(false);
     }
@@ -147,7 +148,7 @@ export default function PosView({ onOpenAddCustomer }) {
         <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>Filtra y selecciona los artículos disponibles para la venta</p>
         
         {/* Category Pills for quick filtering */}
-        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '12px' }}>
+        <div className="filter-tabs-scroll">
           <button 
             className={`btn ${posCategoryFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '6px 14px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
@@ -178,7 +179,7 @@ export default function PosView({ onOpenAddCustomer }) {
           const activeCat = categories.find(c => c.name === posCategoryFilter);
           if (activeCat && activeCat.subcategories.length > 0) {
             return (
-              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '8px', marginBottom: '12px' }}>
+              <div className="filter-tabs-scroll" style={{ marginBottom: '12px' }}>
                 <button 
                   className={`badge ${posSubcategoryFilter === 'all' ? 'badge-success' : 'badge-warning'}`}
                   style={{ padding: '4px 10px', cursor: 'pointer', border: 'none' }}
@@ -218,11 +219,11 @@ export default function PosView({ onOpenAddCustomer }) {
         </div>
 
         {/* Sellable Products Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '14px' }}>
+        <div className="pos-products-grid">
           {filteredPosProducts.map(p => (
             <div key={p.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px' }}>
               {p.image_base64 ? (
-                <img src={p.image_base64} alt={p.name} style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '8px' }} />
+                <img src={getImageUrl(p.image_base64)} alt={p.name} style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '8px' }} />
               ) : (
                 <div style={{ width: '100%', height: '100px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
                   Sin Imagen
@@ -252,7 +253,7 @@ export default function PosView({ onOpenAddCustomer }) {
       </div>
 
       {/* Right Column: Cart & Checkout Info */}
-      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'sticky', top: '24px' }}>
+      <div id="pos-checkout-card" className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'sticky', top: '24px' }}>
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.2rem', margin: 0 }}>
           <ShoppingCart size={18} />
           Resumen de Venta
@@ -631,6 +632,29 @@ export default function PosView({ onOpenAddCustomer }) {
           {isSubmittingSale ? 'Procesando...' : 'Completar Venta & Factura'}
         </button>
       </div>
+
+      {/* Floating Mobile Cart Indicator */}
+      {cart.length > 0 && (
+        <div className="mobile-cart-float-bar">
+          <button 
+            type="button" 
+            onClick={() => {
+              const checkoutElem = document.getElementById('pos-checkout-card');
+              if (checkoutElem) checkoutElem.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="btn btn-primary"
+            style={{ width: '100%', padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 8px 30px rgba(99, 102, 241, 0.5)', borderRadius: '12px' }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700 }}>
+              <ShoppingCart size={18} />
+              {cart.reduce((s, i) => s + i.quantity, 0)} {cart.reduce((s, i) => s + i.quantity, 0) === 1 ? 'artículo' : 'artículos'}
+            </span>
+            <span style={{ fontWeight: 800, fontSize: '1.05rem' }}>
+              ${cartTotal.toFixed(2)} ➔ Cobrar
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

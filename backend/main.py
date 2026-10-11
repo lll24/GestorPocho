@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import uvicorn
 
-from database import create_db_and_tables
+from database import create_db_and_tables, UPLOADS_DIR, checkpoint_wal
 from routers import (
     config as config_router,
     categories as categories_router,
@@ -37,6 +37,10 @@ app.add_middleware(
 def on_startup():
     create_db_and_tables()
 
+@app.on_event("shutdown")
+def on_shutdown():
+    checkpoint_wal()
+
 # Register modular API routers
 app.include_router(config_router.router)
 app.include_router(categories_router.router)
@@ -46,6 +50,10 @@ app.include_router(sales_router.router)
 app.include_router(cash_router.router)
 app.include_router(stats_router.router)
 app.include_router(backup_router.router)
+
+# --- Serve Static Uploads (Product photos, captures, branding) ---
+if os.path.exists(UPLOADS_DIR):
+    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 # --- Serve Frontend Production Build ---
 def resolve_frontend_dist():

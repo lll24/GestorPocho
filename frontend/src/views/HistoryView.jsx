@@ -1,16 +1,22 @@
-import React, { useState } from 'react';
-import { FileText, Search } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { FileText, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api, API_URL } from '../services/api';
 
-export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
-  const { config, sales, cashMovements, statsDays } = useApp();
+export default function HistoryView({ onOpenPaymentModal, onOpenVoidModal, onViewCapture }) {
+  const { config, sales, cashMovements, statsDays, toast } = useApp();
 
   const [historyFilter, setHistoryFilter] = useState('all'); // 'all', 'sales', 'inventory', 'cash', 'abonos'
   const [historySearch, setHistorySearch] = useState('');
   const [loadingCaptureId, setLoadingCaptureId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
 
   const dollarRate = parseFloat(config.dollar_rate) || 45.00;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [historyFilter, historySearch]);
 
   const handleFetchCapture = async (saleId, existingCapture) => {
     if (existingCapture) {
@@ -23,11 +29,11 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
       if (res.capture) {
         onViewCapture(res.capture);
       } else {
-        alert('No se pudo cargar la imagen del comprobante.');
+        toast.error('No se pudo cargar la imagen del comprobante.');
       }
     } catch (err) {
       console.error('Error fetching capture:', err);
-      alert('Error de conexión al cargar la captura.');
+      toast.error('Error de conexión al cargar la captura.');
     } finally {
       setLoadingCaptureId(null);
     }
@@ -52,6 +58,7 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
       amountPending: parseFloat(s.amount_pending) || 0,
       paymentMethod: s.payment_method,
       paymentStatus: s.payment_status,
+      cancelReason: s.cancel_reason,
       paymentReference: s.payment_reference,
       hasCapture: Boolean(s.has_capture || s.payment_capture_base64),
       captureBase64: s.payment_capture_base64,
@@ -71,7 +78,8 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
       title: m.type === 'compra_inventario' ? 'Entrada de Stock' :
              m.type === 'retiro_dueno' ? 'Retiro del Dueño' :
              m.type === 'ingreso_capital' ? 'Aporte de Capital' :
-             m.type === 'abono_fiao' ? 'Abono a Fiao' : 'Movimiento de Caja',
+             m.type === 'abono_fiao' ? 'Abono a Fiao' :
+             m.type === 'devolucion_venta' ? 'Devolución de Venta' : 'Movimiento de Caja',
       description: m.description,
       notes: m.notes,
       amount: parseFloat(m.amount) || 0,
@@ -89,14 +97,14 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
   // Counts for filter pills
   const countSales = timeline.filter(t => t.eventType === 'venta').length;
   const countInv = timeline.filter(t => t.eventType === 'compra_inventario').length;
-  const countCash = timeline.filter(t => ['retiro_dueno', 'ingreso_capital'].includes(t.eventType)).length;
+  const countCash = timeline.filter(t => ['retiro_dueno', 'ingreso_capital', 'devolucion_venta'].includes(t.eventType)).length;
   const countAbonos = timeline.filter(t => t.eventType === 'abono_fiao').length;
 
   // Filter by category
   const filteredTimeline = timeline.filter(item => {
     if (historyFilter === 'sales' && item.eventType !== 'venta') return false;
     if (historyFilter === 'inventory' && item.eventType !== 'compra_inventario') return false;
-    if (historyFilter === 'cash' && !['retiro_dueno', 'ingreso_capital'].includes(item.eventType)) return false;
+    if (historyFilter === 'cash' && !['retiro_dueno', 'ingreso_capital', 'devolucion_venta'].includes(item.eventType)) return false;
     if (historyFilter === 'abonos' && item.eventType !== 'abono_fiao') return false;
 
     if (historySearch.trim()) {
@@ -110,14 +118,22 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
     return true;
   });
 
+  // Pagination calculation
+  const totalItems = filteredTimeline.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const activePage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (activePage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+  const paginatedItems = filteredTimeline.slice(startIndex, endIndex);
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
+      <div className="view-header">
+        <div className="view-header-title">
           <h1>Historial</h1>
           <p style={{ color: 'var(--text-secondary)' }}>Auditoría cronológica de ventas, compras de inventario, abonos y retiros/aportes</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div className="view-header-actions">
           <button 
             onClick={() => window.open(`${API_URL}/api/sales/report?days=${statsDays}`, '_blank')}
             className="btn btn-primary"
@@ -130,8 +146,8 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
       </div>
 
       {/* Filters & Search Toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      <div className="search-toolbar">
+        <div className="filter-tabs-scroll">
           <button 
             className={`btn ${historyFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '8px 14px', fontSize: '0.85rem' }}
@@ -169,7 +185,7 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
           </button>
         </div>
 
-        <div style={{ position: 'relative', width: '280px', maxWidth: '100%' }}>
+        <div className="search-input-wrapper" style={{ position: 'relative', width: '280px', maxWidth: '100%' }}>
           <input 
             type="text" 
             placeholder="Buscar en el historial..."
@@ -196,20 +212,27 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
             </tr>
           </thead>
           <tbody>
-            {filteredTimeline.length > 0 ? (
-              filteredTimeline.map(item => {
+            {paginatedItems.length > 0 ? (
+              paginatedItems.map(item => {
                 const isVenta = item.eventType === 'venta';
                 const isCompra = item.eventType === 'compra_inventario';
                 const isRetiro = item.eventType === 'retiro_dueno';
                 const isAporte = item.eventType === 'ingreso_capital';
                 const isAbono = item.eventType === 'abono_fiao';
+                const isDevolucion = item.eventType === 'devolucion_venta';
+                const isAnulada = isVenta && item.paymentStatus === 'anulado';
 
                 return (
-                  <tr key={item.id}>
+                  <tr key={item.id} style={{ opacity: isAnulada ? 0.75 : 1 }}>
                     {/* 1. Tipo & Ref */}
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {isVenta && (
+                        {isVenta && isAnulada && (
+                          <span className="badge badge-danger" style={{ fontWeight: 800, padding: '4px 8px', fontSize: '0.78rem', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.4)' }}>
+                            VENTA #{item.rawId} (ANULADA)
+                          </span>
+                        )}
+                        {isVenta && !isAnulada && (
                           <span className="badge badge-success" style={{ fontWeight: 800, padding: '4px 8px', fontSize: '0.78rem' }}>
                             VENTA #{item.rawId}
                           </span>
@@ -232,6 +255,11 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
                         {isAbono && (
                           <span className="badge" style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--brand-secondary)', fontWeight: 800, padding: '4px 8px', fontSize: '0.78rem' }}>
                             ABONO FIAO
+                          </span>
+                        )}
+                        {isDevolucion && (
+                          <span className="badge badge-danger" style={{ fontWeight: 800, padding: '4px 8px', fontSize: '0.78rem' }}>
+                            DEVOLUCIÓN
                           </span>
                         )}
                       </div>
@@ -259,6 +287,11 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
                             ))}
                             {item.deliveryCost > 0 && <span style={{ color: 'var(--brand-secondary)' }}>• +Delivery</span>}
                           </div>
+                          {isAnulada && item.cancelReason && (
+                            <div style={{ fontSize: '0.78rem', color: 'var(--status-danger)', marginTop: '4px', fontWeight: 600 }}>
+                              ⚠️ Motivo: {item.cancelReason}
+                            </div>
+                          )}
                         </div>
                       )}
                       {!isVenta && (
@@ -289,6 +322,7 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
                             {item.paymentStatus === 'fiao' && <span className="badge badge-danger">FIAO</span>}
                             {item.paymentStatus === 'parcial' && <span className="badge badge-warning">PARCIAL</span>}
                             {item.paymentStatus === 'pagado' && <span className="badge badge-success">PAGADO</span>}
+                            {item.paymentStatus === 'anulado' && <span className="badge badge-danger" style={{ background: '#7f1d1d', color: '#fca5a5' }}>ANULADA</span>}
                           </div>
                           {item.paymentReference && (
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
@@ -312,17 +346,23 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
                       {isRetiro && <span className="badge badge-warning" style={{ fontSize: '0.72rem' }}>RETIRO DUEÑO</span>}
                       {isAporte && <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>INGRESO CAJA</span>}
                       {isAbono && <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>INGRESO CAJA</span>}
+                      {isDevolucion && <span className="badge badge-danger" style={{ fontSize: '0.72rem' }}>SALIDA CAJA (DEVOLUCIÓN)</span>}
                     </td>
 
                     {/* 5. Monto ($ / Bs.) */}
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 800, fontSize: '0.95rem', color: (isCompra || isRetiro) ? 'var(--status-danger)' : 'var(--status-success)' }}>
-                        {(isCompra || isRetiro) ? '-' : '+'}${item.amount.toFixed(2)}
+                      <div style={{ 
+                        fontWeight: 800, 
+                        fontSize: '0.95rem', 
+                        color: (isCompra || isRetiro || isDevolucion) ? 'var(--status-danger)' : (isAnulada ? 'var(--text-muted)' : 'var(--status-success)'),
+                        textDecoration: isAnulada ? 'line-through' : 'none'
+                      }}>
+                        {(isCompra || isRetiro || isDevolucion) ? '-' : '+'}${item.amount.toFixed(2)}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                         Bs. {(item.amount * item.dollarRate).toFixed(2)}
                       </div>
-                      {isVenta && item.amountPending > 0 && (
+                      {isVenta && !isAnulada && item.amountPending > 0 && (
                         <div style={{ marginTop: '4px' }}>
                           <span className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
                             Debe: ${item.amountPending.toFixed(2)}
@@ -334,7 +374,7 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
                     {/* 6. Acciones */}
                     <td style={{ textAlign: 'right' }}>
                       {isVenta && (
-                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
                           <a 
                             href={`${API_URL}/api/sales/${item.rawId}/invoice`} 
                             target="_blank" 
@@ -344,18 +384,37 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
                           >
                             <FileText size={14} /> Factura
                           </a>
-                          {item.amountPending > 0 && (
-                            <button 
-                              className="btn btn-primary" 
-                              style={{ padding: '6px 10px', fontSize: '0.75rem' }}
-                              onClick={() => onOpenPaymentModal(item.originalSale)}
-                            >
-                              + Abonar
-                            </button>
+                          {!isAnulada && (
+                            <>
+                              {item.amountPending > 0 && (
+                                <button 
+                                  className="btn btn-primary" 
+                                  style={{ padding: '6px 10px', fontSize: '0.75rem' }}
+                                  onClick={() => onOpenPaymentModal(item.originalSale)}
+                                >
+                                  + Abonar
+                                </button>
+                              )}
+                              {onOpenVoidModal && (
+                                <button 
+                                  className="btn btn-secondary" 
+                                  style={{ padding: '6px 10px', fontSize: '0.75rem', color: 'var(--status-danger)', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                                  onClick={() => onOpenVoidModal(item.originalSale)}
+                                  title="Anular venta y reincorporar stock"
+                                >
+                                  Anular
+                                </button>
+                              )}
+                            </>
+                          )}
+                          {isAnulada && (
+                            <span className="badge badge-danger" style={{ fontSize: '0.72rem' }}>
+                              Anulada
+                            </span>
                           )}
                         </div>
                       )}
-                      {isAbono && item.referenceId && (
+                      {(isAbono || isDevolucion) && item.referenceId && (
                         <a 
                           href={`${API_URL}/api/sales/${item.referenceId}/invoice`} 
                           target="_blank" 
@@ -366,7 +425,7 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
                           <FileText size={14} /> Factura
                         </a>
                       )}
-                      {!isVenta && !isAbono && (
+                      {!isVenta && !isAbono && !isDevolucion && (
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
                       )}
                     </td>
@@ -383,6 +442,71 @@ export default function HistoryView({ onOpenPaymentModal, onViewCapture }) {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Bar */}
+      {totalItems > 0 && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginTop: '16px',
+          padding: '12px 18px',
+          background: 'var(--bg-card)',
+          borderRadius: '12px',
+          border: '1px solid var(--border-color)',
+          flexWrap: 'wrap',
+          gap: '14px'
+        }}>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            Mostrando <strong>{startIndex + 1}</strong> - <strong>{endIndex}</strong> de <strong>{totalItems}</strong> movimientos
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              <span>Filas por página:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="form-select"
+                style={{ padding: '4px 8px', fontSize: '0.85rem', width: 'auto', background: 'rgba(0,0,0,0.3)' }}
+              >
+                {[10, 20, 50, 100].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ padding: '6px 10px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                disabled={activePage === 1}
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              >
+                <ChevronLeft size={16} /> Anterior
+              </button>
+
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, padding: '0 8px', color: 'var(--brand-primary)' }}>
+                {activePage} / {totalPages}
+              </span>
+
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ padding: '6px 10px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                disabled={activePage === totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              >
+                Siguiente <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

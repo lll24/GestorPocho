@@ -72,3 +72,7 @@ class SaleCreate(BaseModel):
     payment_reference: Optional[str] = None
     payment_capture_base64: Optional[str] = None
     delivery_cost: Decimal = Decimal("0.00")
+
+class SaleVoidRequest(BaseModel):
+    reason: Optional[str] = "Devolución / Anulación de venta"
+    restore_stock: bool = True

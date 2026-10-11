@@ -11,14 +11,17 @@ router = APIRouter(prefix="/api/stats", tags=["stats"])
 @router.get("")
 def get_stats(days: int = Query(default=30, description="Días hacia atrás para filtrar estadísticas"), session: Session = Depends(get_session)):
     start_date = datetime.now() - timedelta(days=days)
-    sales = session.exec(select(Sale).where(Sale.date >= start_date)).all()
+    sales = session.exec(
+        select(Sale).where(Sale.date >= start_date, Sale.payment_status != "anulado")
+    ).all()
     
     total_revenue = sum((s.total_revenue for s in sales), Decimal("0.00"))
     total_cost = sum((s.total_cost for s in sales), Decimal("0.00"))
     total_profit = sum((s.total_profit for s in sales), Decimal("0.00"))
     
     # Pagos y abonos reales recibidos en este periodo (Flujo de caja efectivo)
-    period_payments = session.exec(select(SalePayment).where(SalePayment.date >= start_date)).all()
+    period_payments_raw = session.exec(select(SalePayment).where(SalePayment.date >= start_date)).all()
+    period_payments = [p for p in period_payments_raw if not p.sale or p.sale.payment_status != "anulado"]
     sales_with_payments = {p.sale_id for p in period_payments}
     legacy_collected = sum((s.amount_paid for s in sales if s.id not in sales_with_payments), Decimal("0.00"))
     total_collected_period = sum((p.amount for p in period_payments), Decimal("0.00")) + legacy_collected
@@ -30,12 +33,12 @@ def get_stats(days: int = Query(default=30, description="Días hacia atrás para
     # Historical investment
     total_historical_value = Decimal("0.00")
     for p in products:
-        sold_qty = sum((item.quantity for item in p.sale_items), 0)
+        sold_qty = sum((item.quantity for item in p.sale_items if not item.sale or item.sale.payment_status != "anulado"), 0)
         total_qty = p.stock + sold_qty
         total_historical_value += total_qty * (p.cost_base * (Decimal("1") + p.cost_iva / Decimal("100")) + p.cost_shipping)
 
     # Debt stats (Total pendiente en la calle)
-    all_sales = session.exec(select(Sale)).all()
+    all_sales = session.exec(select(Sale).where(Sale.payment_status != "anulado")).all()
     total_receivables = sum((s.amount_pending for s in all_sales if s.amount_pending > Decimal("0.00")), Decimal("0.00"))
     
     config = session.get(BusinessConfig, 1)

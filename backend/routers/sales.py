@@ -1,20 +1,27 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
-from database import get_session
+from database import get_session, CAPTURES_DIR
 from models import Sale, SaleItem, SalePayment, Product, Customer, BusinessConfig, CashMovement
-from schemas import SaleCreate, SalePaymentCreate
-from utils.images import optimize_base64_image
+from schemas import SaleCreate, SalePaymentCreate, SaleVoidRequest
+from utils.images import save_base64_to_disk
 from utils.pdf import generate_invoice_pdf_response, generate_financial_report_pdf_response
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
 
 @router.get("")
-def get_sales(session: Session = Depends(get_session)):
-    sales = session.exec(select(Sale).order_by(Sale.date.desc())).all()
+def get_sales(
+    limit: Optional[int] = Query(default=None, ge=1, description="Límite de ventas"),
+    offset: int = Query(default=0, ge=0, description="Desplazamiento para paginación"),
+    session: Session = Depends(get_session)
+):
+    query = select(Sale).order_by(Sale.date.desc())
+    if limit is not None:
+        query = query.offset(offset).limit(limit)
+    sales = session.exec(query).all()
     result = []
     for sale in sales:
         items = []
@@ -46,7 +53,9 @@ def get_sales(session: Session = Depends(get_session)):
 @router.get("/report")
 def get_global_report(days: int = Query(default=30), session: Session = Depends(get_session)):
     start_date = datetime.now() - timedelta(days=days)
-    sales = session.exec(select(Sale).where(Sale.date >= start_date).order_by(Sale.date.desc())).all()
+    sales = session.exec(
+        select(Sale).where(Sale.date >= start_date, Sale.payment_status != "anulado").order_by(Sale.date.desc())
+    ).all()
     cash_movements = session.exec(
         select(CashMovement).where(CashMovement.date >= start_date).order_by(CashMovement.date.desc())
     ).all()
@@ -128,7 +137,13 @@ def create_sale(sale_data: SaleCreate, session: Session = Depends(get_session)):
             amount_pending = Decimal("0.00")
             payment_status = "pagado"
 
-        optimized_capture = optimize_base64_image(sale_data.payment_capture_base64, max_size=(1200, 1200), quality=80)
+        optimized_capture = save_base64_to_disk(
+            sale_data.payment_capture_base64,
+            CAPTURES_DIR,
+            prefix="sale",
+            max_size=(1200, 1200),
+            quality=80
+        )
 
         sale = Sale(
             customer_id=sale_data.customer_id,
@@ -245,6 +260,64 @@ def add_sale_payment(sale_id: int, payment_data: SalePaymentCreate, session: Ses
             "payment_method": payment.payment_method,
             "date": payment.date
         }
+    }
+
+@router.post("/{sale_id}/void")
+def void_sale(sale_id: int, void_data: Optional[SaleVoidRequest] = None, session: Session = Depends(get_session)):
+    sale = session.get(Sale, sale_id)
+    if not sale:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+    if sale.payment_status == "anulado":
+        raise HTTPException(status_code=400, detail="Esta venta ya ha sido anulada previamente")
+    
+    if void_data is None:
+        void_data = SaleVoidRequest()
+
+    reason = (void_data.reason or "").strip() or "Anulación de venta"
+    restore_stock = void_data.restore_stock
+
+    # 1. Devolver productos al stock si se solicitó
+    restored_items_count = 0
+    if restore_stock:
+        for item in sale.items:
+            product = session.get(Product, item.product_id)
+            if product:
+                product.stock += item.quantity
+                session.add(product)
+                restored_items_count += item.quantity
+
+    # 2. Registrar egreso en caja por devolución si se había cobrado dinero
+    refunded_amount = sale.amount_paid
+    if refunded_amount > Decimal("0.00"):
+        refund_mv = CashMovement(
+            type="devolucion_venta",
+            amount=refunded_amount,
+            direction="out",
+            description=f"Devolución por anulación Venta #{sale.id}",
+            reference_id=sale.id,
+            notes=reason,
+            date=datetime.now()
+        )
+        session.add(refund_mv)
+
+    # 3. Marcar la venta como anulada y resetear deuda pendiente
+    sale.payment_status = "anulado"
+    sale.cancel_reason = reason
+    sale.amount_pending = Decimal("0.00")
+
+    session.add(sale)
+    session.commit()
+    session.refresh(sale)
+
+    return {
+        "status": "success",
+        "message": f"Venta #{sale.id} anulada exitosamente",
+        "sale_id": sale.id,
+        "payment_status": sale.payment_status,
+        "cancel_reason": sale.cancel_reason,
+        "stock_restored": restore_stock,
+        "restored_units": restored_items_count,
+        "refunded_amount": float(refunded_amount)
     }
 
 @router.get("/{sale_id}/invoice")

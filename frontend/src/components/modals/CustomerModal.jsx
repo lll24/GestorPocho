@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 
 export default function CustomerModal({ isOpen, editingCustomer, onClose, onSaved }) {
-  const { fetchCustomers } = useApp();
+  const { fetchCustomers, toast } = useApp();
   const [customerForm, setCustomerForm] = useState({
     name: '',
     phone: '',
@@ -47,24 +47,25 @@ export default function CustomerModal({ isOpen, editingCustomer, onClose, onSave
 
       if (res.ok) {
         const savedCustomer = await res.json().catch(() => null);
+        toast.success(editingCustomer ? 'Cliente actualizado con éxito' : 'Cliente registrado con éxito');
         fetchCustomers();
         if (onSaved) onSaved(savedCustomer);
         onClose();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.detail || 'Error al guardar los datos del cliente.');
+        toast.error(err.detail || 'Error al guardar los datos del cliente.');
       }
     } catch (err) {
       console.error('Error saving customer:', err);
-      alert('Error de conexión al guardar el cliente.');
+      toast.error('Error de conexión al guardar el cliente.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, padding: '20px' }}>
-      <form onSubmit={handleSubmit} className="card" style={{ width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="modal-backdrop">
+      <form onSubmit={handleSubmit} className="card modal-card" style={{ maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <h2>{editingCustomer ? 'Editar Cliente' : 'Registrar Nuevo Cliente'}</h2>
 
         <div className="form-group" style={{ marginBottom: 0 }}>

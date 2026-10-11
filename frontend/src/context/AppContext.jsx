@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { useToast } from './ToastContext';
 
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
+  const { showToast, toast } = useToast();
   // App Config
   const [config, setConfig] = useState({
     name: 'Mi Emprendimiento',
@@ -180,7 +182,9 @@ export function AppProvider({ children }) {
     fetchCash,
     fetchCashData: fetchCash,
     applyTheme,
-    refreshAll
+    refreshAll,
+    showToast,
+    toast
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

@@ -14,9 +14,9 @@ def get_customers(session: Session = Depends(get_session)):
     customers = session.exec(select(Customer).order_by(Customer.name.asc())).all()
     result = []
     for c in customers:
-        sales = c.sales
-        total_spent = sum((s.total_revenue for s in sales), Decimal("0.00"))
-        total_debt = sum((s.amount_pending for s in sales), Decimal("0.00"))
+        valid_sales = [s for s in c.sales if s.payment_status != "anulado"]
+        total_spent = sum((s.total_revenue for s in valid_sales), Decimal("0.00"))
+        total_debt = sum((s.amount_pending for s in valid_sales), Decimal("0.00"))
         result.append({
             "id": c.id,
             "name": c.name,
@@ -25,7 +25,7 @@ def get_customers(session: Session = Depends(get_session)):
             "address": c.address,
             "notes": c.notes,
             "created_at": c.created_at,
-            "sales_count": len(sales),
+            "sales_count": len(valid_sales),
             "total_spent": float(total_spent),
             "total_debt": float(total_debt)
         })
@@ -48,10 +48,14 @@ def get_customer_detail(customer_id: int, session: Session = Depends(get_session
     sales_history = []
     total_spent = Decimal("0.00")
     total_debt = Decimal("0.00")
+    valid_sales_count = 0
     
     for s in customer.sales:
-        total_spent += s.total_revenue
-        total_debt += s.amount_pending
+        if s.payment_status != "anulado":
+            total_spent += s.total_revenue
+            total_debt += s.amount_pending
+            valid_sales_count += 1
+
         items = []
         for item in s.items:
             items.append({
@@ -80,6 +84,7 @@ def get_customer_detail(customer_id: int, session: Session = Depends(get_session
             "amount_pending": float(s.amount_pending),
             "payment_method": s.payment_method,
             "payment_reference": s.payment_reference,
+            "cancel_reason": s.cancel_reason,
             "dollar_rate": float(s.dollar_rate),
             "items": items,
             "payments": payments
@@ -98,7 +103,7 @@ def get_customer_detail(customer_id: int, session: Session = Depends(get_session
         "metrics": {
             "total_spent": float(total_spent),
             "total_debt": float(total_debt),
-            "sales_count": len(customer.sales)
+            "sales_count": valid_sales_count
         },
         "sales": sales_history
     }

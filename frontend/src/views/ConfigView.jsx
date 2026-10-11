@@ -3,6 +3,7 @@ import { Upload, Check, RefreshCw, AlertTriangle, Trash2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { api, API_URL } from '../services/api';
 import { compressImageFile } from '../utils/imageCompressor';
+import { getImageUrl } from '../utils/imageUrl';
 
 export default function ConfigView() {
   const { 
@@ -12,7 +13,8 @@ export default function ConfigView() {
     fetchSales, 
     fetchCashData, 
     fetchStats, 
-    applyTheme 
+    applyTheme,
+    toast 
   } = useApp();
 
   const [configForm, setConfigForm] = useState({
@@ -45,7 +47,7 @@ export default function ConfigView() {
       setConfigForm(prev => ({ ...prev, logo_base64: b64 }));
     } catch (err) {
       console.error('Error compressing logo:', err);
-      alert('No se pudo procesar la imagen seleccionada.');
+      toast.error('No se pudo procesar la imagen seleccionada.');
     }
   };
 
@@ -63,14 +65,14 @@ export default function ConfigView() {
         const data = await res.json();
         applyTheme(data);
         await fetchConfig();
-        alert('Configuración guardada con éxito.');
+        toast.success('Configuración guardada con éxito.');
         fetchStats();
       } else {
-        alert('Error al guardar configuración.');
+        toast.error('Error al guardar configuración.');
       }
     } catch (err) {
       console.error('Error saving config:', err);
-      alert('Error de conexión al guardar configuración.');
+      toast.error('Error de conexión al guardar configuración.');
     } finally {
       setIsSaving(false);
     }
@@ -91,15 +93,15 @@ export default function ConfigView() {
     try {
       const res = await api.restoreDatabase(formData);
       if (res.ok) {
-        alert('¡Base de datos restaurada con éxito! La página se recargará.');
-        window.location.reload();
+        toast.success('¡Base de datos restaurada con éxito! Recargando...');
+        setTimeout(() => window.location.reload(), 1200);
       } else {
         const errData = await res.json();
-        alert(`Error al restaurar: ${errData.detail || 'Error desconocido'}`);
+        toast.error(`Error al restaurar: ${errData.detail || 'Error desconocido'}`);
       }
     } catch (err) {
       console.error('Error restoring database:', err);
-      alert('Error de conexión al restaurar.');
+      toast.error('Error de conexión al restaurar.');
     } finally {
       e.target.value = '';
     }
@@ -108,7 +110,7 @@ export default function ConfigView() {
   const handleResetStockAndHistory = async () => {
     const confirmation = prompt('⚠️ ATENCIÓN: Esta acción vaciará todo el historial de movimientos de caja y ventas, y pondrá el stock de TODOS tus productos en 0 para arrancar limpio con el nuevo sistema diario.\n\nTus productos, categorías, fotos, costos y precios se mantendrán intactos.\n\nPara confirmar, escribe REINICIAR (en mayúsculas):');
     if (confirmation !== 'REINICIAR') {
-      if (confirmation !== null) alert('Operación cancelada. El texto no coincidió.');
+      if (confirmation !== null) toast.warning('Operación cancelada. El texto no coincidió.');
       return;
     }
 
@@ -116,27 +118,31 @@ export default function ConfigView() {
       const res = await api.resetStockAndHistory();
       if (res.ok) {
         const data = await res.json();
-        alert(data.message || 'Historial reiniciado y stock establecido en 0 con éxito.');
+        toast.success(data.message || 'Historial reiniciado y stock establecido en 0 con éxito.');
         fetchProducts();
         fetchSales();
         fetchCashData();
         fetchStats();
       } else {
         const errData = await res.json().catch(() => ({}));
-        alert(`Error: ${errData.detail || 'No se pudo reiniciar el historial'}`);
+        toast.error(`Error: ${errData.detail || 'No se pudo reiniciar el historial'}`);
       }
     } catch (err) {
       console.error('Error resetting stock and history:', err);
-      alert('Error de conexión al intentar reiniciar.');
+      toast.error('Error de conexión al intentar reiniciar.');
     }
   };
 
   return (
-    <div style={{ maxWidth: '650px' }}>
-      <h1>Personalización de Marca</h1>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-        Define el nombre, logo, tasa de cambio y temas de tu negocio
-      </p>
+    <div style={{ maxWidth: '650px', width: '100%' }}>
+      <div className="view-header">
+        <div>
+          <h1 style={{ margin: 0 }}>Personalización de Marca</h1>
+          <p style={{ color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+            Define el nombre, logo, tasa de cambio y temas de tu negocio
+          </p>
+        </div>
+      </div>
 
       <form onSubmit={saveConfig} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <div className="form-group">
@@ -150,7 +156,7 @@ export default function ConfigView() {
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+        <div className="config-grid-3">
           <div className="form-group">
             <label className="form-label">Color de Marca</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -204,7 +210,7 @@ export default function ConfigView() {
           {configForm.logo_base64 && (
             <div style={{ textAlign: 'center', marginTop: '10px' }}>
               <img 
-                src={configForm.logo_base64} 
+                src={getImageUrl(configForm.logo_base64)} 
                 alt="Preview Logo" 
                 style={{ maxHeight: '100px', borderRadius: '8px', border: '1px solid var(--border-color)' }} 
               />
